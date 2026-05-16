@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Tabby</title>
+    <link rel="stylesheet" href="interstitial.css" />
+  </head>
+  <body>
+    <main class="wrap">
+      <h1 class="title">You already have this site open</h1>
+      <p class="sub">
+        <span class="host" id="host"></span> — open in another tab below. Switch to it, or open a new tab anyway.
+      </p>
+      <p class="keys" id="hint">
+        <kbd>Y</kbd> or <kbd>Enter</kbd> — switch to highlighted tab ·
+        <kbd>N</kbd> — open new tab ·
+        <kbd>1</kbd>–<kbd>9</kbd> — switch to that tab in the list ·
+        <kbd>Esc</kbd> — cancel (stay here)
+      </p>
+
+      <ul class="list" id="list"></ul>
+
+      <div class="actions">
+        <button type="button" class="btn primary" id="btn-switch">Switch to selected tab (Y)</button>
+        <button type="button" class="btn" id="btn-new">Open new tab anyway (N)</button>
+      </div>
+
+      <p class="footnote">Matching uses the full hostname (e.g. <code>mail.google.com</code> vs <code>drive.google.com</code> are different).</p>
+    </main>
+    <script type="module" src="interstitial.js"></script>
+  </body>
+</html>

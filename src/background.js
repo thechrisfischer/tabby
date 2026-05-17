@@ -161,17 +161,23 @@ async function findSamePageDuplicates(tabId, targetUrl) {
   return dups;
 }
 
-async function shouldOfferConsolidation(hostname) {
+async function shouldOfferConsolidation(hostname, currentTabCount) {
   const storageKey = `consolidate_pitch_${hostname}`;
-  const data = await chrome.storage.session.get(storageKey);
-  const last = data[storageKey];
-  if (typeof last !== "number") return true;
-  return Date.now() - last > DEFAULT_COOLDOWN_MS;
+  const [{ [storageKey]: prior }, settings] = await Promise.all([
+    chrome.storage.session.get(storageKey),
+    getSettings(),
+  ]);
+  return evaluateConsolidationPitch({
+    prior: prior ?? null,
+    currentCount: currentTabCount,
+    cooldownMs: settings.consolidateCooldownMs,
+    now: Date.now(),
+  });
 }
 
-async function recordConsolidationPitch(hostname) {
+async function recordConsolidationPitch(hostname, count) {
   await chrome.storage.session.set({
-    [`consolidate_pitch_${hostname}`]: Date.now(),
+    [`consolidate_pitch_${hostname}`]: { at: Date.now(), count },
   });
 }
 
@@ -308,7 +314,7 @@ async function showConsolidateInterstitial(tabId, pendingUrl, hostname, tabCount
     chrome.storage.session.remove(storageKey);
   }, ttlMs);
 
-  await recordConsolidationPitch(hostname);
+  await recordConsolidationPitch(hostname, tabCount);
 
   await chrome.tabs.update(tabId, {
     url: `${chrome.runtime.getURL(INTERSTITIAL_PAGE)}?c=${encodeURIComponent(c)}`,
@@ -345,7 +351,7 @@ async function maybeIntercept(tabId, url, _source) {
 
     const allTabs = await chrome.tabs.query({});
     const tabCount = countTabsForHostnameAfterNavigation(allTabs, tabId, host);
-    if (tabCount >= 3 && (await shouldOfferConsolidation(host))) {
+    if (tabCount >= 3 && (await shouldOfferConsolidation(host, tabCount))) {
       await showConsolidateInterstitial(tabId, url, host, tabCount);
     }
   } finally {

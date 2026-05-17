@@ -70,6 +70,25 @@
       #undo[hidden] {
         display: none;
       }
+      .settings-label {
+        display: block;
+        margin-top: 12px;
+        font-size: 11px;
+        font-weight: 600;
+        color: color-mix(in srgb, CanvasText 60%, Canvas);
+        text-transform: uppercase;
+        letter-spacing: 0.04em;
+      }
+      .settings-select {
+        width: 100%;
+        margin-top: 4px;
+        font: inherit;
+        padding: 6px 8px;
+        border-radius: 6px;
+        border: 1px solid color-mix(in srgb, CanvasText 16%, Canvas);
+        background: color-mix(in srgb, CanvasText 4%, Canvas);
+        color: CanvasText;
+      }
       .keeper-note {
         margin-top: 8px;
         font-size: 11px;
@@ -87,6 +106,14 @@
     <p id="status" aria-live="polite"></p>
     <button type="button" id="consolidate" disabled>Consolidate duplicate hostnames</button>
     <button type="button" id="undo" hidden>Undo</button>
+    <label for="cooldown" class="settings-label">Re-check sites every:</label>
+    <select id="cooldown" class="settings-select">
+      <option value="0">Off — only when tabs keep stacking</option>
+      <option value="300000">5 min</option>
+      <option value="1800000">30 min</option>
+      <option value="3600000">1 hour</option>
+      <option value="21600000">6 hours</option>
+    </select>
     <p class="keeper-note">Keeps your active tab plus the most recent per site.</p>
     <script src="popup.js"></script>
   </body>

@@ -176,6 +176,25 @@ async function recordConsolidationPitch(hostname) {
 }
 
 /**
+ * Read user settings from chrome.storage.local. Defensive against missing or
+ * malformed payloads — always returns a fully-populated settings object so
+ * callers never have to null-check fields.
+ */
+async function getSettings() {
+  try {
+    const data = await chrome.storage.local.get("settings");
+    const raw = data?.settings ?? {};
+    const cooldownMs =
+      typeof raw.consolidateCooldownMs === "number" && raw.consolidateCooldownMs >= 0
+        ? raw.consolidateCooldownMs
+        : DEFAULT_COOLDOWN_MS;
+    return { consolidateCooldownMs: cooldownMs };
+  } catch {
+    return { consolidateCooldownMs: DEFAULT_COOLDOWN_MS };
+  }
+}
+
+/**
  * Build a duplicate-by-hostname consolidation plan. For each hostname with more than
  * KEEP_PER_HOST eligible tabs, keep the top survivors and close the rest.
  *

@@ -1,8 +1,12 @@
 const statusEl = document.getElementById("status");
 const btn = document.getElementById("consolidate");
 const undoBtn = document.getElementById("undo");
+const cooldownEl = document.getElementById("cooldown");
 
 const UNDO_WINDOW_MS = 10000;
+// SYNC with src/cooldown.mjs — popup.js runs as a classic script (no `type="module"`),
+// so it can't import from the .mjs module. Keep these two values identical.
+const DEFAULT_COOLDOWN_MS = 5 * 60 * 1000;
 
 let undoState = null; // { sessionIds, expiresAt, intervalId, closedCount, hostCount }
 
@@ -141,7 +145,31 @@ async function runUndo() {
   window.setTimeout(() => window.close(), 800);
 }
 
+async function loadCooldownSetting() {
+  if (!cooldownEl) return;
+  try {
+    const { settings } = await chrome.storage.local.get("settings");
+    const stored = settings?.consolidateCooldownMs;
+    const value =
+      typeof stored === "number" && stored >= 0 ? stored : DEFAULT_COOLDOWN_MS;
+    cooldownEl.value = String(value);
+  } catch {
+    cooldownEl.value = String(DEFAULT_COOLDOWN_MS);
+  }
+}
+
+async function saveCooldownSetting() {
+  if (!cooldownEl) return;
+  const value = Number(cooldownEl.value);
+  if (!Number.isFinite(value) || value < 0) return;
+  await chrome.storage.local.set({
+    settings: { consolidateCooldownMs: value },
+  });
+}
+
 btn?.addEventListener("click", () => void runConsolidate());
 undoBtn?.addEventListener("click", () => void runUndo());
+cooldownEl?.addEventListener("change", () => void saveCooldownSetting());
 window.addEventListener("beforeunload", clearUndo);
+void loadCooldownSetting();
 void refreshPreview();

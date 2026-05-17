@@ -8,6 +8,8 @@ const INTERSTITIAL_PAGE = "src/interstitial.html";
 const EXT_PREFIX = chrome.runtime.getURL("");
 
 const inFlight = new Map();
+/** Last committed top-level http(s) URL per tab (for same-site duplicate bypass). */
+const lastCommittedHttpUrlByTab = new Map();
 const CONSOLIDATE_COOLDOWN_MS = 6 * 60 * 60 * 1000;
 
 function isHttpUrl(url) {
@@ -25,6 +27,23 @@ function isExtensionUrl(url) {
 
 function hostnameOf(url) {
   return new URL(url).hostname;
+}
+
+/**
+ * If the user was already on this host before this navigation, treat duplicate URL hits
+ * as normal in-site navigation (e.g. cart link on Amazon) and do not show the interstitial.
+ *
+ * Uses the last committed main-frame URL; hostname match only (not eTLD+1 — www vs apex
+ * or sibling subdomains still look "cross-site" here).
+ */
+function shouldSkipDuplicateInterstitialForSameSiteNavigation(tabId, targetUrl) {
+  const prior = lastCommittedHttpUrlByTab.get(tabId);
+  if (!prior || !isHttpUrl(prior) || isExtensionUrl(prior)) return false;
+  try {
+    return hostnameOf(prior).toLowerCase() === hostnameOf(targetUrl).toLowerCase();
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -282,6 +301,9 @@ async function maybeIntercept(tabId, url, _source) {
 
     const dupes = await findSamePageDuplicates(tabId, url);
     if (dupes.length > 0) {
+      if (shouldSkipDuplicateInterstitialForSameSiteNavigation(tabId, url)) {
+        return;
+      }
       await showDuplicateInterstitial(tabId, url, dupes);
       return;
     }
@@ -298,6 +320,21 @@ async function maybeIntercept(tabId, url, _source) {
     }, 500);
   }
 }
+
+chrome.webNavigation.onCommitted.addListener((details) => {
+  if (details.frameId !== 0) return;
+  const u = details.url;
+  if (isExtensionUrl(u)) return;
+  if (!isHttpUrl(u)) {
+    lastCommittedHttpUrlByTab.delete(details.tabId);
+    return;
+  }
+  lastCommittedHttpUrlByTab.set(details.tabId, u);
+});
+
+chrome.tabs.onRemoved.addListener((tabId) => {
+  lastCommittedHttpUrlByTab.delete(tabId);
+});
 
 chrome.webNavigation.onBeforeNavigate.addListener((details) => {
   if (details.frameId !== 0) return;

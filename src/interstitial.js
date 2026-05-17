@@ -52,50 +52,166 @@ function titlesDiffer(tabTitle, documentTitle) {
   return a !== b;
 }
 
-function utcDayMix() {
-  const d = new Date();
-  const day = d.getUTCFullYear() * 372 + d.getUTCMonth() * 31 + d.getUTCDate();
-  return (day * 7919 + 104729) >>> 0;
+/** FNV-1a 32-bit — stable hash for interstitial session ids (`k` / `c`). */
+function fnv1a32(str) {
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 16777619) >>> 0;
+  }
+  return h >>> 0;
 }
 
-function signalIndexForToday(length) {
+/** Must match `src/interstitial-hero-boot.js` and `src/heroes.json` (single source of truth). */
+const HERO_EMBEDDED = {
+  files: [
+    "bg-01.jpg",
+    "bg-02.jpg",
+    "bg-03.jpg",
+    "bg-04.jpg",
+    "bg-05.jpg",
+    "bg-06.jpg",
+    "bg-07.jpg",
+    "bg-08.jpg",
+    "bg-09.jpg",
+    "bg-10.jpg",
+  ],
+  positions: [
+    "center 35%",
+    "center 28%",
+    "62% 38%",
+    "38% 48%",
+    "center 42%",
+    "72% 32%",
+    "28% 36%",
+    "center 22%",
+    "55% 40%",
+    "48% 55%",
+  ],
+};
+
+const HERO_SEED_STORAGE_KEY = "tabby-hero-seed-fallback";
+
+/**
+ * Hero backdrop seed: one stable look per interstitial invocation (`?k=` / `?c=` UUID).
+ * Same URL on refresh → same seed. New invocation → new UUID → new hero.
+ * If the URL has no session param, use a per-tab-session value so refresh still matches.
+ *
+ * Keep in sync with `interstitial-hero-boot.js` (same formula + storage key).
+ */
+function heroSeedFromInvocation(k, c) {
+  const param = (k || c || "").trim();
+  if (param) return fnv1a32(param);
+  try {
+    let stored = sessionStorage.getItem(HERO_SEED_STORAGE_KEY);
+    if (!stored) {
+      const buf = new Uint32Array(1);
+      crypto.getRandomValues(buf);
+      stored = String(buf[0] >>> 0);
+      sessionStorage.setItem(HERO_SEED_STORAGE_KEY, stored);
+    }
+    return Number(stored) >>> 0;
+  } catch {
+    return 104729;
+  }
+}
+
+function randomSignalIndex(length) {
   if (length <= 0) return 0;
-  return utcDayMix() % length;
+  const buf = new Uint32Array(1);
+  crypto.getRandomValues(buf);
+  return buf[0] % length;
 }
 
 /**
- * Hero art: bundled files under src/assets + daily crop positions.
- * Add more filenames to heroes.json as you ship additional images (no network fetch).
+ * Hero art: bundled files under src/assets + crop positions from heroes.json.
+ * `seed` comes from the interstitial session (stable across refresh for that URL).
  */
-function heroPick(config) {
-  const files = config?.files?.length ? config.files : ["bg-01.jpg"];
-  const positions = config?.positions?.length ? config.positions : ["center 35%"];
-  const day = utcDayMix();
-  const fileIx = day % files.length;
-  const posIx = ((day * 5011 + 17) >>> 0) % positions.length;
+function heroPick(config, seed) {
+  const files = config?.files?.length ? config.files : HERO_EMBEDDED.files;
+  const positions = config?.positions?.length ? config.positions : HERO_EMBEDDED.positions;
+  const s = (seed >>> 0) || 0;
+  const fileIx = s % files.length;
+  const posIx = ((s * 5011 + 17) >>> 0) % positions.length;
   return { file: files[fileIx], position: positions[posIx] };
 }
 
 async function loadSignals() {
   const url = chrome.runtime.getURL("src/signals.json");
-  const res = await fetch(url);
-  if (!res.ok) return null;
-  return /** @type {Array<{ lines: string[]; by: string }>} */ (await res.json());
+  try {
+    const res = await fetch(url);
+    if (!res.ok) return null;
+    return /** @type {Array<{ lines: string[]; by: string }>} */ (await res.json());
+  } catch {
+    return null;
+  }
 }
 
 async function loadHeroConfig() {
   const url = chrome.runtime.getURL("src/heroes.json");
-  const res = await fetch(url);
-  if (!res.ok) return null;
-  return /** @type {{ files?: string[]; positions?: string[] }} */ (await res.json());
+  try {
+    const res = await fetch(url, { cache: "no-cache" });
+    if (!res.ok) return null;
+    const raw = /** @type {unknown} */ (await res.json());
+    return normalizeHeroConfig(raw);
+  } catch {
+    return null;
+  }
 }
 
-function applyHeroBackdrop(config) {
+/**
+ * Ignore corrupt/truncated JSON (e.g. bad cache) so we never shrink the file list vs boot.
+ * Boot uses the embedded lists; modulo must stay consistent or the hero swaps on refresh.
+ */
+function normalizeHeroConfig(raw) {
+  if (!raw || typeof raw !== "object") return null;
+  const files = /** @type {{ files?: unknown; positions?: unknown }} */ (raw).files;
+  const positions = /** @type {{ files?: unknown; positions?: unknown }} */ (raw).positions;
+  if (!Array.isArray(files) || !Array.isArray(positions)) return null;
+  if (
+    files.length < HERO_EMBEDDED.files.length ||
+    positions.length < HERO_EMBEDDED.positions.length
+  ) {
+    return null;
+  }
+  return { files: /** @type {string[]} */ (files), positions: /** @type {string[]} */ (positions) };
+}
+
+function heroListsEqual(a, b) {
+  if (!a?.files?.length || !b?.files?.length) return false;
+  if (!a.positions?.length || !b.positions?.length) return false;
+  if (a.files.length !== b.files.length || a.positions.length !== b.positions.length) return false;
+  return a.files.every((f, i) => f === b.files[i]) && a.positions.every((p, i) => p === b.positions[i]);
+}
+
+function applyHeroBackdrop(config, seed) {
   const img = document.getElementById("backdrop-img");
   if (!img) return;
-  const { file, position } = heroPick(config || {});
-  img.src = chrome.runtime.getURL(`src/assets/${file}`);
+
+  const fetched = config?.files?.length ? config : null;
+  const booted = Boolean(img.dataset.tabbyHeroFile);
+
+  // Boot already ran; fetched JSON matches bundled defaults — never touch the image again.
+  // Re-assigning src / styles here can re-decode and flash on later reloads (cache timing).
+  if (booted && (!fetched || heroListsEqual(fetched, HERO_EMBEDDED))) {
+    return;
+  }
+
+  // Boot ran with embedded lists, but heroes.json is a strict superset — re-pick once.
+  const merged = fetched ?? HERO_EMBEDDED;
+  const { file, position } = heroPick(merged, seed);
+  const url = chrome.runtime.getURL(`src/assets/${file}`);
+  if (img.dataset.tabbyHeroFile === file && img.dataset.tabbyHeroPos === position) return;
+  if (img.src === url) {
+    img.style.objectPosition = position;
+    img.dataset.tabbyHeroFile = file;
+    img.dataset.tabbyHeroPos = position;
+    return;
+  }
+  img.src = url;
   img.style.objectPosition = position;
+  img.dataset.tabbyHeroFile = file;
+  img.dataset.tabbyHeroPos = position;
 }
 
 function renderQuote(entry) {
@@ -685,11 +801,12 @@ function onKeydownConsolidate(e) {
 
 async function main() {
   const { k, c } = parseParams();
+  const heroSeed = heroSeedFromInvocation(k, c);
   // One round-trip: quotes + hero config are tiny bundled JSON; parallel keeps first paint snappy.
   const [signals, heroConfig] = await Promise.all([loadSignals(), loadHeroConfig()]);
-  applyHeroBackdrop(heroConfig);
+  applyHeroBackdrop(heroConfig, heroSeed);
   if (signals?.length) {
-    renderQuote(signals[signalIndexForToday(signals.length)]);
+    renderQuote(signals[randomSignalIndex(signals.length)]);
   }
 
   if (k) {
@@ -754,4 +871,6 @@ async function main() {
   setDupDialogCollapsed(false);
 }
 
-void main();
+void main().catch((err) => {
+  console.error("[Tabby] interstitial failed to initialize", err);
+});

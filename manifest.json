@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Tabby — focus guard",
-  "version": "1.4.21",
+  "version": "1.4.22",
   "description": "Exact-URL duplicate guard plus optional hostname stack trims — built for deliberate browsing.",
   "icons": {
     "16": "icons/icon-16.png",

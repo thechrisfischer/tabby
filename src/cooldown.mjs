@@ -13,6 +13,8 @@
 /**
  * Default cooldown when no user setting exists yet (5 min).
  * Tuned for short bursts of tab sprawl rather than long quiet sessions.
+ * Duplicated as a plain `const` in src/popup.js — popup runs as a classic script
+ * (no `type="module"`) so it can't import from here. Keep the two values identical.
  */
 export const DEFAULT_COOLDOWN_MS = 5 * 60 * 1000;
 

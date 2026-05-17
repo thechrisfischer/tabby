@@ -6,7 +6,6 @@
 
 import {
   DEFAULT_COOLDOWN_MS,
-  REARM_GROWTH,
   evaluateConsolidationPitch,
 } from "./cooldown.mjs";
 

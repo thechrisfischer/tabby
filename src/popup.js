@@ -162,8 +162,9 @@ async function saveCooldownSetting() {
   if (!cooldownEl) return;
   const value = Number(cooldownEl.value);
   if (!Number.isFinite(value) || value < 0) return;
+  const { settings: existing } = await chrome.storage.local.get("settings");
   await chrome.storage.local.set({
-    settings: { consolidateCooldownMs: value },
+    settings: { ...(existing ?? {}), consolidateCooldownMs: value },
   });
 }
 

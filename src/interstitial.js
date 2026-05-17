@@ -784,6 +784,9 @@ function onKeydownConsolidate(e) {
 
   if (e.key === "Escape") {
     e.preventDefault();
+    if (typeof conState.tabId === "number") {
+      void chrome.runtime.sendMessage({ type: "tabby-close-tab", tabId: conState.tabId });
+    }
     return;
   }
 
@@ -905,6 +908,11 @@ async function main() {
     );
     qs("btn-merge").addEventListener("click", () => void consolidateAndGo());
     qs("btn-keep").addEventListener("click", () => void keepTabsAndGo());
+    qs("btn-con-stay").addEventListener("click", () => {
+      if (typeof conState?.tabId === "number") {
+        void chrome.runtime.sendMessage({ type: "tabby-close-tab", tabId: conState.tabId });
+      }
+    });
     clearDialogEntranceAnimation();
     window.addEventListener("keydown", onKeydownConsolidate, true);
     return;

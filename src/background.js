@@ -4,13 +4,18 @@
  * - Same hostname with 3+ tabs (after this navigation): occasional consolidation offer (throttled).
  */
 
+import {
+  DEFAULT_COOLDOWN_MS,
+  REARM_GROWTH,
+  evaluateConsolidationPitch,
+} from "./cooldown.mjs";
+
 const INTERSTITIAL_PAGE = "src/interstitial.html";
 const EXT_PREFIX = chrome.runtime.getURL("");
 
 const inFlight = new Map();
 /** Last committed top-level http(s) URL per tab (for same-site duplicate bypass). */
 const lastCommittedHttpUrlByTab = new Map();
-const CONSOLIDATE_COOLDOWN_MS = 6 * 60 * 60 * 1000;
 
 /**
  * Per-host survivors after popup consolidation. The active tab is always kept (when it
@@ -161,7 +166,7 @@ async function shouldOfferConsolidation(hostname) {
   const data = await chrome.storage.session.get(storageKey);
   const last = data[storageKey];
   if (typeof last !== "number") return true;
-  return Date.now() - last > CONSOLIDATE_COOLDOWN_MS;
+  return Date.now() - last > DEFAULT_COOLDOWN_MS;
 }
 
 async function recordConsolidationPitch(hostname) {

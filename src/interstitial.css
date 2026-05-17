@@ -110,40 +110,54 @@ body {
 .brand {
   position: absolute;
   z-index: 2;
-  top: max(clamp(0.85rem, 2.5vh, 1.5rem), env(safe-area-inset-top, 0px));
-  left: max(clamp(0.85rem, 3.5vw, 2rem), env(safe-area-inset-left, 0px));
+  top: max(clamp(1rem, 2.8vh, 1.75rem), env(safe-area-inset-top, 0px));
+  left: max(clamp(1rem, 4vw, 2.25rem), env(safe-area-inset-left, 0px));
   display: flex;
   align-items: center;
-  gap: 0.65rem;
+  justify-content: center;
   margin-bottom: 0;
-  padding: 0.45rem 1rem 0.45rem 0.5rem;
-  border-radius: 999px;
-  background: rgba(0, 0, 0, 0.22);
-  border: 1px solid rgba(255, 255, 255, 0.14);
-  backdrop-filter: blur(12px);
-  -webkit-backdrop-filter: blur(12px);
+  padding: clamp(0.7rem, 1.6vh, 1.05rem) clamp(0.95rem, 2vw, 1.45rem);
+  border-radius: 22px;
+  background: rgba(0, 0, 0, 0.28);
+  border: 1px solid rgba(255, 255, 255, 0.17);
+  backdrop-filter: blur(22px) saturate(1.15);
+  -webkit-backdrop-filter: blur(22px) saturate(1.15);
+  box-shadow:
+    0 8px 32px rgba(0, 0, 0, 0.22),
+    0 0 0 1px rgba(255, 255, 255, 0.05) inset;
 }
 
-.brand-icon {
+/* Horizontal lockup: size by width so the mark + wordmark read at a glance */
+.brand-lockup {
   display: block;
-  width: 64px;
-  height: 64px;
-  border-radius: 16px;
-  object-fit: contain;
-  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.35);
+  line-height: 0;
 }
 
-.brand-name {
-  font-size: 1.1rem;
-  font-weight: 620;
-  letter-spacing: 0.02em;
-  color: var(--fg-soft);
+.brand-lockup-img {
+  display: block;
+  width: min(400px, calc(100vw - 2.75rem));
+  height: auto;
+  border-radius: 16px;
+  filter: drop-shadow(0 6px 20px rgba(0, 0, 0, 0.28));
+}
+
+@media (min-width: 1100px) {
+  .brand-lockup-img {
+    width: min(440px, 38vw);
+  }
 }
 
 @media (prefers-color-scheme: light) {
   .brand {
-    background: rgba(255, 255, 255, 0.45);
-    border-color: rgba(255, 255, 255, 0.7);
+    background: rgba(255, 255, 255, 0.52);
+    border-color: rgba(255, 255, 255, 0.78);
+    box-shadow:
+      0 6px 28px rgba(20, 24, 31, 0.08),
+      0 0 0 1px rgba(255, 255, 255, 0.65) inset;
+  }
+
+  .brand-lockup-img {
+    filter: drop-shadow(0 4px 16px rgba(20, 24, 31, 0.1));
   }
 }
 
@@ -964,7 +978,7 @@ kbd {
     flex-direction: column;
     align-items: stretch;
     padding: 0 clamp(1rem, 4vw, 1.5rem) clamp(0.85rem, 2.5vh, 1.25rem);
-    padding-top: clamp(4.35rem, 11vh, 5.75rem);
+    padding-top: clamp(6.25rem, 20vh, 9rem);
     box-sizing: border-box;
   }
 

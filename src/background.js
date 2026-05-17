@@ -12,6 +12,13 @@ const inFlight = new Map();
 const lastCommittedHttpUrlByTab = new Map();
 const CONSOLIDATE_COOLDOWN_MS = 6 * 60 * 60 * 1000;
 
+/**
+ * Per-host survivors after popup consolidation. The active tab is always kept (when it
+ * belongs to a cluster); the rest of the survivors are the most-recently-accessed.
+ * Tunable here, not in user settings — the point of consolidation is decisiveness.
+ */
+const KEEP_PER_HOST = 2;
+
 function isHttpUrl(url) {
   try {
     const u = new URL(url);
@@ -164,9 +171,13 @@ async function recordConsolidationPitch(hostname) {
 }
 
 /**
- * Build a duplicate-by-hostname consolidation plan. For each hostname with 2+ eligible
- * tabs, keep one tab and close the rest. Keeper preference: preferTabId if it is in the
- * group; otherwise highest lastAccessed (ties: lower tab id).
+ * Build a duplicate-by-hostname consolidation plan. For each hostname with more than
+ * KEEP_PER_HOST eligible tabs, keep the top survivors and close the rest.
+ *
+ * Survivor ranking, highest priority first:
+ *   1. preferTabId (the active tab) — always kept when it belongs to a cluster.
+ *   2. Most-recently-accessed (descending).
+ *   3. Lower tab id (stable tie-break).
  */
 function buildConsolidationPlan(allTabs, preferTabId) {
   const eligible = allTabs.filter(
@@ -189,22 +200,22 @@ function buildConsolidationPlan(allTabs, preferTabId) {
   const hosts = [];
 
   for (const [_host, group] of byHost) {
-    if (group.length < 2) continue;
+    if (group.length <= KEEP_PER_HOST) continue;
 
-    const preferred = preferTabId != null ? group.find((t) => t.id === preferTabId) : null;
-    let keeper = preferred;
-
-    if (!keeper) {
-      keeper = group[0];
-      for (const t of group) {
-        const a = t.lastAccessed ?? 0;
-        const b = keeper.lastAccessed ?? 0;
-        if (a > b || (a === b && t.id < keeper.id)) keeper = t;
+    const ranked = [...group].sort((a, b) => {
+      if (preferTabId != null) {
+        if (a.id === preferTabId) return -1;
+        if (b.id === preferTabId) return 1;
       }
-    }
+      const la = a.lastAccessed ?? 0;
+      const lb = b.lastAccessed ?? 0;
+      if (la !== lb) return lb - la;
+      return a.id - b.id;
+    });
 
+    const keepers = new Set(ranked.slice(0, KEEP_PER_HOST).map((t) => t.id));
     for (const t of group) {
-      if (t.id !== keeper.id) toClose.push(t.id);
+      if (!keepers.has(t.id)) toClose.push(t.id);
     }
     hosts.push(hostnameOf(group[0].url));
   }
@@ -421,8 +432,10 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       try {
         const allTabs = await chrome.tabs.query({});
         const plan = buildConsolidationPlan(allTabs, preferTabId);
+        let undoSessionIds = [];
         if (!dryRun && plan.toClose.length > 0) {
           await chrome.tabs.remove(plan.toClose);
+          undoSessionIds = await captureClosedSessionIds(plan.toClose.length);
         }
         sendResponse({
           ok: true,
@@ -430,6 +443,7 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
           closedCount: plan.closedCount,
           hostCount: plan.hostCount,
           hosts: plan.hosts,
+          undoSessionIds,
         });
       } catch (e) {
         sendResponse({ ok: false, error: String(e) });
@@ -437,4 +451,48 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
     })();
     return true;
   }
+
+  if (msg?.type === "tabby-undo-consolidate") {
+    const sessionIds = Array.isArray(msg.sessionIds) ? msg.sessionIds : [];
+    void (async () => {
+      try {
+        let restored = 0;
+        for (const id of sessionIds) {
+          try {
+            await chrome.sessions.restore(id);
+            restored++;
+          } catch {
+            /* session may have aged out — keep going */
+          }
+        }
+        sendResponse({ ok: true, restored });
+      } catch (e) {
+        sendResponse({ ok: false, error: String(e) });
+      }
+    })();
+    return true;
+  }
 });
+
+/**
+ * Pull the N most recent tab entries from chrome.sessions and return their sessionIds.
+ * Called immediately after a batch close, so the closed tabs are at the head of the list.
+ * A small delay gives Chrome a moment to register the closures in the sessions log.
+ */
+async function captureClosedSessionIds(expected) {
+  await new Promise((r) => setTimeout(r, 80));
+  let recent;
+  try {
+    recent = await chrome.sessions.getRecentlyClosed({ maxResults: expected + 5 });
+  } catch {
+    return [];
+  }
+  const ids = [];
+  for (const item of recent) {
+    const sessionId = item.tab?.sessionId;
+    if (!sessionId) continue;
+    ids.push(sessionId);
+    if (ids.length >= expected) break;
+  }
+  return ids;
+}

@@ -13,7 +13,7 @@ async function getPreferredTabId() {
 }
 
 async function refreshPreview() {
-  setStatus("Scanning…", "muted");
+  setStatus("Scanning workspace…", "muted");
   const preferTabId = await getPreferredTabId();
   const res = await chrome.runtime.sendMessage({
     type: "tabby-consolidate",
@@ -27,14 +27,14 @@ async function refreshPreview() {
   }
 
   if (res.closedCount === 0) {
-    setStatus("No duplicate hostnames — nothing to consolidate.", "ok");
+    setStatus("No stacked hostnames — you are already running lean.", "ok");
     if (btn) btn.disabled = true;
     return;
   }
 
   if (btn) btn.disabled = false;
   setStatus(
-    `${res.closedCount} tab(s) across ${res.hostCount} hostname(s) can be closed. Keeps your active tab when it’s part of a group.`,
+    `${res.closedCount} tab(s) across ${res.hostCount} hostname(s) can close — we keep your active tab when it is part of a cluster.`,
     "muted",
   );
 }
@@ -42,7 +42,7 @@ async function refreshPreview() {
 async function runConsolidate() {
   if (!btn) return;
   btn.disabled = true;
-  setStatus("Closing duplicates…", "muted");
+  setStatus("Trimming stack…", "muted");
   const preferTabId = await getPreferredTabId();
   const res = await chrome.runtime.sendMessage({
     type: "tabby-consolidate",
@@ -57,9 +57,9 @@ async function runConsolidate() {
   }
 
   if (res.closedCount === 0) {
-    setStatus("No duplicates to close.", "ok");
+    setStatus("Nothing left to trim.", "ok");
   } else {
-    setStatus(`Closed ${res.closedCount} duplicate tab(s) (${res.hostCount} hostname(s)).`, "ok");
+    setStatus(`Closed ${res.closedCount} tab(s) across ${res.hostCount} hostname(s). Back to execution.`, "ok");
   }
 
   window.setTimeout(() => window.close(), 450);

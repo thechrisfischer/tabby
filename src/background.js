@@ -1,12 +1,14 @@
 /**
- * Intercept navigations to an https? URL whose hostname already exists on another tab.
- * Uses an extension interstitial + session storage (payload may be large).
+ * Intercept navigations:
+ * - Same normalized page (origin + path + sorted query + hash): duplicate interstitial.
+ * - Same hostname with 3+ tabs (after this navigation): occasional consolidation offer (throttled).
  */
 
 const INTERSTITIAL_PAGE = "src/interstitial.html";
 const EXT_PREFIX = chrome.runtime.getURL("");
 
 const inFlight = new Map();
+const CONSOLIDATE_COOLDOWN_MS = 6 * 60 * 60 * 1000;
 
 function isHttpUrl(url) {
   try {
@@ -23,6 +25,25 @@ function isExtensionUrl(url) {
 
 function hostnameOf(url) {
   return new URL(url).hostname;
+}
+
+/**
+ * Same "page" key: protocol + hostname + path (no trailing slash except root) +
+ * sorted query string + hash (exact).
+ */
+function normalizeUrlKey(url) {
+  const u = new URL(url);
+  let path = u.pathname;
+  if (path.length > 1 && path.endsWith("/")) path = path.slice(0, -1);
+  const entries = [...u.searchParams.entries()].sort((a, b) => {
+    const cmp = a[0].localeCompare(b[0]);
+    if (cmp !== 0) return cmp;
+    return String(a[1]).localeCompare(String(b[1]));
+  });
+  const sp = new URLSearchParams(entries);
+  const q = sp.toString();
+  const frag = u.hash || "";
+  return `${u.protocol}//${u.hostname}${path}${q ? `?${q}` : ""}${frag}`;
 }
 
 function bypassKey(tabId) {
@@ -47,36 +68,86 @@ async function setBypass(tabId, host, ms = 60000) {
   });
 }
 
-async function findDuplicates(tabId, targetUrl) {
-  const host = hostnameOf(targetUrl);
+function hostOfTab(t) {
+  if (!t.url || !isHttpUrl(t.url) || isExtensionUrl(t.url)) return null;
+  return hostnameOf(t.url);
+}
+
+/**
+ * URL to use when detecting “same page” as another tab: prefer in-flight navigation target.
+ */
+function tabUrlForPageMatch(t) {
+  const p = t.pendingUrl;
+  if (typeof p === "string" && p.length > 0 && isHttpUrl(p) && !isExtensionUrl(p)) {
+    return p;
+  }
+  const u = t.url;
+  if (typeof u === "string" && u.length > 0) return u;
+  return null;
+}
+
+/**
+ * How many tabs will be on targetHostname after this navigation completes?
+ * The navigating tab counts as belonging to targetHostname for this estimate.
+ */
+function countTabsForHostnameAfterNavigation(allTabs, navigatingTabId, targetHostname) {
+  let n = 0;
+  for (const t of allTabs) {
+    if (t.id == null) continue;
+    const h = t.id === navigatingTabId ? targetHostname : hostOfTab(t);
+    if (h === targetHostname) n++;
+  }
+  return n;
+}
+
+async function findSamePageDuplicates(tabId, targetUrl) {
+  const key = normalizeUrlKey(targetUrl);
   const tabs = await chrome.tabs.query({});
   const dups = [];
 
   for (const t of tabs) {
     if (t.id === tabId) continue;
-    if (!t.url || !isHttpUrl(t.url)) continue;
-    if (isExtensionUrl(t.url)) continue;
-    if (hostnameOf(t.url) !== host) continue;
+    const u = tabUrlForPageMatch(t);
+    if (!u || !isHttpUrl(u) || isExtensionUrl(u)) continue;
+    if (normalizeUrlKey(u) !== key) continue;
     dups.push({
       id: t.id,
       windowId: t.windowId,
-      index: t.index,
-      title: t.title || t.url,
-      url: t.url,
+      index: t.index ?? 0,
+      title: t.title || u,
+      url: u,
+      favIconUrl: t.favIconUrl || "",
       lastAccessed: t.lastAccessed ?? 0,
+      pinned: !!t.pinned,
     });
   }
 
-  dups.sort((a, b) => b.lastAccessed - a.lastAccessed);
+  dups.sort((a, b) => {
+    if (a.windowId !== b.windowId) return a.windowId - b.windowId;
+    if (a.index !== b.index) return a.index - b.index;
+    return (b.lastAccessed ?? 0) - (a.lastAccessed ?? 0);
+  });
   return dups;
+}
+
+async function shouldOfferConsolidation(hostname) {
+  const storageKey = `consolidate_pitch_${hostname}`;
+  const data = await chrome.storage.session.get(storageKey);
+  const last = data[storageKey];
+  if (typeof last !== "number") return true;
+  return Date.now() - last > CONSOLIDATE_COOLDOWN_MS;
+}
+
+async function recordConsolidationPitch(hostname) {
+  await chrome.storage.session.set({
+    [`consolidate_pitch_${hostname}`]: Date.now(),
+  });
 }
 
 /**
  * Build a duplicate-by-hostname consolidation plan. For each hostname with 2+ eligible
  * tabs, keep one tab and close the rest. Keeper preference: preferTabId if it is in the
  * group; otherwise highest lastAccessed (ties: lower tab id).
- * @param {number|undefined} preferTabId - e.g. active tab in the window that opened the popup
- * @returns {{ toClose: number[], closedCount: number, hostCount: number, hosts: string[] }}
  */
 function buildConsolidationPlan(allTabs, preferTabId) {
   const eligible = allTabs.filter(
@@ -98,7 +169,7 @@ function buildConsolidationPlan(allTabs, preferTabId) {
   const toClose = [];
   const hosts = [];
 
-  for (const [host, group] of byHost) {
+  for (const [_host, group] of byHost) {
     if (group.length < 2) continue;
 
     const preferred = preferTabId != null ? group.find((t) => t.id === preferTabId) : null;
@@ -116,7 +187,7 @@ function buildConsolidationPlan(allTabs, preferTabId) {
     for (const t of group) {
       if (t.id !== keeper.id) toClose.push(t.id);
     }
-    hosts.push(host);
+    hosts.push(hostnameOf(group[0].url));
   }
 
   return {
@@ -127,12 +198,73 @@ function buildConsolidationPlan(allTabs, preferTabId) {
   };
 }
 
+/** All http(s) tab ids on hostname (for “consolidate into this navigation” from interstitial). */
+function httpTabIdsForHostname(allTabs, hostname) {
+  return allTabs
+    .filter(
+      (t) =>
+        t.id != null &&
+        t.url &&
+        isHttpUrl(t.url) &&
+        !isExtensionUrl(t.url) &&
+        hostnameOf(t.url) === hostname,
+    )
+    .map((t) => t.id);
+}
+
+async function showDuplicateInterstitial(tabId, url, dupes) {
+  const k = crypto.randomUUID();
+  const storageKey = `dup_${k}`;
+  const ttlMs = 5 * 60 * 1000;
+  await chrome.storage.session.set({
+    [storageKey]: {
+      kind: "duplicate",
+      targetUrl: url,
+      duplicates: dupes,
+      tabId,
+      created: Date.now(),
+    },
+  });
+
+  setTimeout(() => {
+    chrome.storage.session.remove(storageKey);
+  }, ttlMs);
+
+  await chrome.tabs.update(tabId, {
+    url: `${chrome.runtime.getURL(INTERSTITIAL_PAGE)}?k=${encodeURIComponent(k)}`,
+  });
+}
+
+async function showConsolidateInterstitial(tabId, pendingUrl, hostname, tabCount) {
+  const c = crypto.randomUUID();
+  const storageKey = `consolidate_${c}`;
+  const ttlMs = 5 * 60 * 1000;
+  await chrome.storage.session.set({
+    [storageKey]: {
+      kind: "consolidate",
+      pendingUrl,
+      hostname,
+      tabCount,
+      tabId,
+      created: Date.now(),
+    },
+  });
+
+  setTimeout(() => {
+    chrome.storage.session.remove(storageKey);
+  }, ttlMs);
+
+  await recordConsolidationPitch(hostname);
+
+  await chrome.tabs.update(tabId, {
+    url: `${chrome.runtime.getURL(INTERSTITIAL_PAGE)}?c=${encodeURIComponent(c)}`,
+  });
+}
+
 async function maybeIntercept(tabId, url, _source) {
   if (!isHttpUrl(url) || isExtensionUrl(url)) return;
-  if (await hasBypass(tabId, hostnameOf(url))) return;
-
-  const dupes = await findDuplicates(tabId, url);
-  if (dupes.length === 0) return;
+  const host = hostnameOf(url);
+  if (await hasBypass(tabId, host)) return;
 
   const now = Date.now();
   if (inFlight.get(tabId) && now - inFlight.get(tabId) < 800) return;
@@ -148,26 +280,17 @@ async function maybeIntercept(tabId, url, _source) {
     if (t.pendingUrl && isExtensionUrl(t.pendingUrl)) return;
     if (t.url && isExtensionUrl(t.url)) return;
 
-    const k = crypto.randomUUID();
-    const storageKey = `dup_${k}`;
-    const ttlMs = 5 * 60 * 1000;
-    await chrome.storage.session.set({
-      [storageKey]: {
-        targetUrl: url,
-        duplicates: dupes,
-        tabId,
-        created: Date.now(),
-      },
-    });
+    const dupes = await findSamePageDuplicates(tabId, url);
+    if (dupes.length > 0) {
+      await showDuplicateInterstitial(tabId, url, dupes);
+      return;
+    }
 
-    // Self-expire storage (session storage has no native TTL)
-    setTimeout(() => {
-      chrome.storage.session.remove(storageKey);
-    }, ttlMs);
-
-    await chrome.tabs.update(tabId, {
-      url: `${chrome.runtime.getURL(INTERSTITIAL_PAGE)}?k=${encodeURIComponent(k)}`,
-    });
+    const allTabs = await chrome.tabs.query({});
+    const tabCount = countTabsForHostnameAfterNavigation(allTabs, tabId, host);
+    if (tabCount >= 3 && (await shouldOfferConsolidation(host))) {
+      await showConsolidateInterstitial(tabId, url, host, tabCount);
+    }
   } finally {
     setTimeout(() => {
       const ts = inFlight.get(tabId);
@@ -224,6 +347,25 @@ chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
       try {
         await chrome.tabs.remove(tabId);
         sendResponse({ ok: true });
+      } catch (e) {
+        sendResponse({ ok: false, error: String(e) });
+      }
+    })();
+    return true;
+  }
+
+  if (msg?.type === "tabby-consolidate-host-and-go") {
+    const { tabId: navTabId, hostname, pendingUrl } = msg;
+    void (async () => {
+      try {
+        const allTabs = await chrome.tabs.query({});
+        const toClose = httpTabIdsForHostname(allTabs, hostname);
+        if (toClose.length > 0) {
+          await chrome.tabs.remove(toClose);
+        }
+        await setBypass(navTabId, hostnameOf(pendingUrl));
+        await chrome.tabs.update(navTabId, { url: pendingUrl });
+        sendResponse({ ok: true, closedCount: toClose.length });
       } catch (e) {
         sendResponse({ ok: false, error: String(e) });
       }

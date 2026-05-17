@@ -5,29 +5,99 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title>Tabby</title>
     <link rel="stylesheet" href="interstitial.css" />
+    <link rel="preload" href="assets/bg-01.jpg" as="image" fetchpriority="high" />
   </head>
   <body>
-    <main class="wrap">
-      <h1 class="title">You already have this site open</h1>
-      <p class="sub">
-        <span class="host" id="host"></span> — open in another tab below. Switch to it, or open a new tab anyway.
+    <div class="backdrop" aria-hidden="true">
+      <img
+        id="backdrop-img"
+        class="backdrop-img"
+        src="assets/bg-01.jpg"
+        alt=""
+        width="1920"
+        height="1080"
+        decoding="async"
+        fetchpriority="high"
+      />
+      <div class="backdrop-scrim"></div>
+    </div>
+
+    <div class="page">
+      <header class="brand" aria-label="Tabby">
+        <img
+          class="brand-icon"
+          src="../icons/icon-128.png"
+          width="128"
+          height="128"
+          alt=""
+        />
+        <span class="brand-name">Tabby</span>
+      </header>
+
+      <aside class="quote-monument" aria-label="Daily quote">
+        <blockquote class="quote monument-pullquote" id="quote-block" cite="signals">
+          <p class="monument-line" id="quote-l1"></p>
+          <p class="monument-line monument-line--secondary" id="quote-l2"></p>
+          <footer class="monument-by" id="quote-by"></footer>
+        </blockquote>
+      </aside>
+
+      <aside class="tab-thumb" id="tab-thumb" hidden aria-hidden="true">
+        <div class="tab-thumb-inner">
+          <div class="tab-thumb-frame">
+            <img id="tab-thumb-img" class="tab-thumb-img" alt="" width="72" height="72" decoding="async" hidden />
+            <span class="tab-thumb-initial" id="tab-thumb-initial" hidden aria-hidden="true"></span>
+          </div>
+          <div class="tab-thumb-copy">
+            <p class="tab-thumb-title" id="tab-thumb-title"></p>
+            <p class="tab-thumb-recency" id="tab-thumb-recency" hidden></p>
+            <p class="tab-thumb-live-title" id="tab-thumb-live-title" hidden></p>
+            <p class="tab-thumb-canonical" id="tab-thumb-canonical" hidden></p>
+            <p class="tab-thumb-desc" id="tab-thumb-desc" hidden></p>
+          </div>
+        </div>
+      </aside>
+
+      <p class="dup-restore-hint" id="dup-restore-hint" hidden aria-live="polite">
+        Esc — show choices
       </p>
-      <p class="keys" id="hint">
-        <kbd>Y</kbd> or <kbd>Enter</kbd> — switch to highlighted tab ·
-        <kbd>N</kbd> — open new tab ·
-        <kbd>1</kbd>–<kbd>9</kbd> — switch to that tab in the list ·
-        <kbd>Esc</kbd> — cancel (stay here)
-      </p>
 
-      <ul class="list" id="list"></ul>
+      <main class="dialog-card" id="dialog-card">
+        <section class="mode mode-duplicate" id="panel-dup" hidden>
+          <h1 class="title">You already have this page open</h1>
+          <p class="sub sub--dup-host"><span class="host" id="host"></span></p>
+          <p class="keys err-msg" id="hint-dup" hidden role="alert"></p>
+          <ul
+            class="list"
+            id="list"
+            role="listbox"
+            aria-label="Tabs and actions for this duplicate page"
+          ></ul>
+        </section>
 
-      <div class="actions">
-        <button type="button" class="btn primary" id="btn-switch">Switch to selected tab (Y)</button>
-        <button type="button" class="btn" id="btn-new">Open new tab anyway (N)</button>
-      </div>
+        <section class="mode mode-consolidate" id="panel-con" hidden>
+          <h1 class="title" id="con-title">Quite a few tabs for this site</h1>
+          <p class="sub" id="con-body"></p>
+          <p class="keys err-msg" id="hint-con-err" hidden role="alert"></p>
+          <div class="actions">
+            <button type="button" class="btn primary" id="btn-keep">
+              <span class="btn-text">Open in this tab</span>
+              <kbd class="btn-kbd" aria-hidden="true">Enter</kbd>
+            </button>
+            <button type="button" class="btn" id="btn-merge">
+              <span class="btn-text">Tidy up &amp; continue</span>
+              <kbd class="btn-kbd" aria-hidden="true">C</kbd>
+            </button>
+            <button type="button" class="btn btn-ghost" id="btn-con-stay">
+              <span class="btn-text">Stay on this screen</span>
+              <kbd class="btn-kbd" aria-hidden="true">Esc</kbd>
+            </button>
+          </div>
+        </section>
 
-      <p class="footnote">Matching uses the full hostname (e.g. <code>mail.google.com</code> vs <code>drive.google.com</code> are different).</p>
-    </main>
+        <p class="footnote" id="footnote"></p>
+      </main>
+    </div>
     <script type="module" src="interstitial.js"></script>
   </body>
 </html>

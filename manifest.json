@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "Tabby — duplicate tab guard",
-  "version": "1.2.0",
-  "description": "Prompt before opening another tab to the same site you already have open.",
+  "name": "Tabby — focus guard",
+  "version": "1.4.21",
+  "description": "Exact-URL duplicate guard plus optional hostname stack trims — built for deliberate browsing.",
   "icons": {
     "16": "icons/icon-16.png",
     "32": "icons/icon-32.png",
@@ -16,7 +16,7 @@
     "type": "module"
   },
   "action": {
-    "default_title": "Tabby — duplicate tab guard",
+    "default_title": "Tabby — focus & stack control",
     "default_popup": "src/popup.html",
     "default_icon": {
       "16": "icons/icon-16.png",

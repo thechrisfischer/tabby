@@ -1,0 +1,26 @@
+{
+  "files": [
+    "bg-01.jpg",
+    "bg-02.jpg",
+    "bg-03.jpg",
+    "bg-04.jpg",
+    "bg-05.jpg",
+    "bg-06.jpg",
+    "bg-07.jpg",
+    "bg-08.jpg",
+    "bg-09.jpg",
+    "bg-10.jpg"
+  ],
+  "positions": [
+    "center 35%",
+    "center 28%",
+    "62% 38%",
+    "38% 48%",
+    "center 42%",
+    "72% 32%",
+    "28% 36%",
+    "center 22%",
+    "55% 40%",
+    "48% 55%"
+  ]
+}

@@ -448,6 +448,12 @@ kbd {
   flex-wrap: nowrap;
 }
 
+.con-list {
+  max-height: clamp(150px, 32vh, 320px);
+  overflow-y: auto;
+  margin-bottom: 0.85rem;
+}
+
 .mode-consolidate .btn {
   min-height: 4rem;
   box-sizing: border-box;

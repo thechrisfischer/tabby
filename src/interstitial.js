@@ -11,7 +11,7 @@ function parseParams() {
 
 /** @type {null | { kind: 'duplicate'; targetUrl: string; duplicates: any[]; tabId: number }} */
 let dupState = null;
-/** @type {null | { kind: 'consolidate'; pendingUrl: string; hostname: string; tabCount: number; tabId: number }} */
+/** @type {null | { kind: 'consolidate'; pendingUrl: string; hostname: string; tabCount: number; tabId: number; hostTabs: Array<{id:number;windowId:number;index:number;title:string;url:string;favIconUrl:string;lastAccessed:number;pinned:boolean}> }} */
 let conState = null;
 
 let dupRovingIndex = 0;
@@ -623,6 +623,7 @@ async function loadConState(c) {
   const data = await chrome.storage.session.get(storageKey);
   const payload = data[storageKey];
   if (!payload?.pendingUrl || !payload?.hostname || typeof payload.tabCount !== "number") return null;
+  if (!Array.isArray(payload.hostTabs)) payload.hostTabs = [];
   return payload;
 }
 
@@ -799,6 +800,53 @@ function onKeydownConsolidate(e) {
   }
 }
 
+function renderHostTabs() {
+  const listEl = document.getElementById("con-list");
+  if (!listEl) return;
+  const tabs = conState?.hostTabs ?? [];
+  listEl.replaceChildren();
+  if (tabs.length === 0) {
+    listEl.hidden = true;
+    return;
+  }
+  listEl.hidden = false;
+  tabs.forEach((d, i) => {
+    const li = document.createElement("li");
+    li.className = "item item--tab" + (i === 0 ? " item--tab-first" : "");
+    li.id = `con-opt-${i}`;
+    li.setAttribute("role", "option");
+    li.dataset.kind = "host-tab";
+    li.dataset.index = String(i);
+    li.innerHTML = `
+      <span class="item-index" aria-hidden="true">·</span>
+      <div class="item-body">
+        <div class="item-title"></div>
+        <div class="item-url"></div>
+      </div>
+    `;
+    li.querySelector(".item-title").textContent = d.title || d.url;
+    li.querySelector(".item-url").textContent = d.url;
+    li.addEventListener("click", () => void focusHostTabAt(i));
+    listEl.appendChild(li);
+  });
+}
+
+async function focusHostTabAt(tabIndex) {
+  if (!conState?.hostTabs?.length) return;
+  const d = conState.hostTabs[tabIndex];
+  if (!d) return;
+  const interstitialTabId = conState.tabId;
+  const res = await chrome.runtime.sendMessage({
+    type: "tabby-focus-tab",
+    tabId: d.id,
+    windowId: d.windowId,
+  });
+  if (!res?.ok) return;
+  if (typeof interstitialTabId === "number") {
+    await chrome.runtime.sendMessage({ type: "tabby-close-tab", tabId: interstitialTabId });
+  }
+}
+
 async function main() {
   const { k, c } = parseParams();
   const heroSeed = heroSeedFromInvocation(k, c);
@@ -851,6 +899,7 @@ async function main() {
     setConChromeVisible(true);
     const body = qs("con-body");
     body.textContent = `You have ${conState.tabCount} tabs open to ${conState.hostname}. Want to close the extras and land here? Or keep everything as-is? We only ask once in a while so it stays helpful, not noisy.`;
+    renderHostTabs();
     setFootnote(
       "If you tidy up, we’ll close the normal website tabs for this address (not other extensions or browser pages), then open your link in this tab.",
     );

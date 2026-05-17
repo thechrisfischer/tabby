@@ -161,6 +161,45 @@ async function findSamePageDuplicates(tabId, targetUrl) {
   return dups;
 }
 
+/**
+ * Tabs that share `hostname` with the navigating tab (excluding the navigator),
+ * shaped to feed the consolidate interstitial's tab list. Sort:
+ * most-recently-accessed first, then by window+index for stable grouping.
+ */
+async function findSameHostTabs(navigatingTabId, hostname) {
+  const tabs = await chrome.tabs.query({});
+  const out = [];
+  for (const t of tabs) {
+    if (t.id === navigatingTabId) continue;
+    const u = tabUrlForPageMatch(t);
+    if (!u || !isHttpUrl(u) || isExtensionUrl(u)) continue;
+    let h;
+    try {
+      h = hostnameOf(u);
+    } catch {
+      continue;
+    }
+    if (h !== hostname) continue;
+    out.push({
+      id: t.id,
+      windowId: t.windowId,
+      index: t.index ?? 0,
+      title: t.title || u,
+      url: u,
+      favIconUrl: t.favIconUrl || "",
+      lastAccessed: t.lastAccessed ?? 0,
+      pinned: !!t.pinned,
+    });
+  }
+  out.sort((a, b) => {
+    const la = b.lastAccessed - a.lastAccessed;
+    if (la !== 0) return la;
+    if (a.windowId !== b.windowId) return a.windowId - b.windowId;
+    return a.index - b.index;
+  });
+  return out;
+}
+
 async function shouldOfferConsolidation(hostname, currentTabCount) {
   const storageKey = `consolidate_pitch_${hostname}`;
   const [{ [storageKey]: prior }, settings] = await Promise.all([
@@ -295,7 +334,7 @@ async function showDuplicateInterstitial(tabId, url, dupes) {
   });
 }
 
-async function showConsolidateInterstitial(tabId, pendingUrl, hostname, tabCount) {
+async function showConsolidateInterstitial(tabId, pendingUrl, hostname, tabCount, hostTabs) {
   const c = crypto.randomUUID();
   const storageKey = `consolidate_${c}`;
   const ttlMs = 5 * 60 * 1000;
@@ -306,6 +345,7 @@ async function showConsolidateInterstitial(tabId, pendingUrl, hostname, tabCount
       hostname,
       tabCount,
       tabId,
+      hostTabs,
       created: Date.now(),
     },
   });
@@ -352,7 +392,8 @@ async function maybeIntercept(tabId, url, _source) {
     const allTabs = await chrome.tabs.query({});
     const tabCount = countTabsForHostnameAfterNavigation(allTabs, tabId, host);
     if (tabCount >= 3 && (await shouldOfferConsolidation(host, tabCount))) {
-      await showConsolidateInterstitial(tabId, url, host, tabCount);
+      const hostTabs = await findSameHostTabs(tabId, host);
+      await showConsolidateInterstitial(tabId, url, host, tabCount, hostTabs);
     }
   } finally {
     setTimeout(() => {

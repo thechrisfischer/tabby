@@ -104,20 +104,34 @@ body {
   z-index: 1;
   min-height: 100vh;
   min-height: 100dvh;
-  padding: 0;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(360px, 580px);
+  grid-template-rows: auto minmax(0, 1fr) auto;
+  grid-template-areas:
+    "brand panel"
+    "quote panel"
+    "thumb panel";
+  gap: clamp(1rem, 3vh, 2rem) clamp(1.5rem, 4vw, 4rem);
+  padding:
+    max(clamp(1rem, 2.8vh, 1.75rem), env(safe-area-inset-top, 0px))
+    max(clamp(1rem, 3.5vw, 2.25rem), env(safe-area-inset-right, 0px))
+    max(clamp(0.85rem, 3vh, 2.25rem), env(safe-area-inset-bottom, 0px))
+    max(clamp(1rem, 4vw, 2.75rem), env(safe-area-inset-left, 0px));
+  overflow: hidden;
 }
 
 .brand {
-  position: absolute;
+  position: relative;
+  grid-area: brand;
   z-index: 2;
-  top: max(clamp(1rem, 2.8vh, 1.75rem), env(safe-area-inset-top, 0px));
-  left: max(clamp(1rem, 4vw, 2.25rem), env(safe-area-inset-left, 0px));
   display: flex;
   align-items: center;
   justify-content: center;
+  align-self: start;
+  justify-self: start;
   margin-bottom: 0;
-  padding: clamp(0.7rem, 1.6vh, 1.05rem) clamp(0.95rem, 2vw, 1.45rem);
-  border-radius: 22px;
+  padding: clamp(0.45rem, 1.2vh, 0.7rem) clamp(0.55rem, 1.4vw, 0.85rem);
+  border-radius: 16px;
   background: rgba(0, 0, 0, 0.28);
   border: 1px solid rgba(255, 255, 255, 0.17);
   backdrop-filter: blur(22px) saturate(1.15);
@@ -135,15 +149,15 @@ body {
 
 .brand-lockup-img {
   display: block;
-  width: min(400px, calc(100vw - 2.75rem));
+  width: clamp(145px, 10vw, 190px);
   height: auto;
-  border-radius: 16px;
+  border-radius: 12px;
   filter: drop-shadow(0 6px 20px rgba(0, 0, 0, 0.28));
 }
 
 @media (min-width: 1100px) {
   .brand-lockup-img {
-    width: min(440px, 38vw);
+    width: clamp(160px, 11vw, 210px);
   }
 }
 
@@ -162,11 +176,14 @@ body {
 }
 
 .dialog-card {
-  position: absolute;
+  position: relative;
+  grid-area: panel;
   z-index: 2;
-  right: max(clamp(0.85rem, 3.5vw, 2.25rem), env(safe-area-inset-right, 0px));
-  bottom: max(clamp(0.85rem, 3vh, 2.25rem), env(safe-area-inset-bottom, 0px));
-  width: min(580px, calc(100vw - clamp(1.25rem, 6vw, 2.75rem)));
+  align-self: end;
+  justify-self: end;
+  width: min(100%, 580px);
+  max-height: calc(100dvh - max(clamp(1rem, 2.8vh, 1.75rem), env(safe-area-inset-top, 0px)) - max(clamp(0.85rem, 3vh, 2.25rem), env(safe-area-inset-bottom, 0px)));
+  overflow: auto;
   margin: 0;
   padding: clamp(1.45rem, 3.8vw, 2rem) clamp(1.35rem, 3.8vw, 1.85rem) clamp(1.25rem, 3.2vw, 1.55rem);
   border-radius: var(--radius-card);
@@ -207,10 +224,11 @@ body {
 }
 
 .dup-restore-hint {
-  position: absolute;
+  position: relative;
+  grid-area: panel;
   z-index: 3;
-  right: max(clamp(0.85rem, 3.5vw, 2.25rem), env(safe-area-inset-right, 0px));
-  bottom: max(clamp(0.85rem, 3vh, 2.25rem), env(safe-area-inset-bottom, 0px));
+  align-self: end;
+  justify-self: end;
   margin: 0;
   padding: 0.4rem 0.65rem;
   max-width: min(280px, calc(100vw - 2rem));
@@ -698,11 +716,12 @@ kbd {
 
 /* --- Tab preview (duplicate tab rows): favicon + title + context + meta snippet --- */
 .tab-thumb {
-  position: absolute;
+  position: relative;
+  grid-area: thumb;
   z-index: 2;
-  left: max(clamp(1rem, 4vw, 2.75rem), env(safe-area-inset-left, 0px));
-  bottom: max(clamp(5.5rem, 12vh, 7.5rem), env(safe-area-inset-bottom, 0px));
-  width: min(22rem, calc(100vw - 520px));
+  align-self: end;
+  justify-self: start;
+  width: min(22rem, 100%);
   pointer-events: none;
   text-align: left;
 }
@@ -855,12 +874,12 @@ kbd {
 
 /* --- Monument quote: full-bleed hero type (left / vertical center) --- */
 .quote-monument {
-  position: absolute;
+  position: relative;
+  grid-area: quote;
   z-index: 1;
-  left: max(clamp(1rem, 4vw, 2.75rem), env(safe-area-inset-left, 0px));
-  top: 50%;
-  transform: translateY(-50%);
-  max-width: min(36rem, calc(100vw - 620px));
+  align-self: center;
+  justify-self: start;
+  max-width: min(40rem, 100%);
   pointer-events: none;
 }
 
@@ -983,14 +1002,21 @@ kbd {
     display: flex;
     flex-direction: column;
     align-items: stretch;
-    padding: 0 clamp(1rem, 4vw, 1.5rem) clamp(0.85rem, 2.5vh, 1.25rem);
-    padding-top: clamp(6.25rem, 20vh, 9rem);
+    padding: clamp(0.85rem, 2.5vh, 1.25rem) clamp(1rem, 4vw, 1.5rem);
     box-sizing: border-box;
+    overflow: visible;
   }
 
   .brand {
-    top: clamp(0.65rem, 2vh, 1rem);
-    left: clamp(0.65rem, 3vw, 1.25rem);
+    position: relative;
+    top: auto;
+    left: auto;
+    align-self: flex-start;
+    margin-bottom: clamp(1.25rem, 4vh, 2rem);
+  }
+
+  .brand-lockup-img {
+    width: min(180px, calc(100vw - 3rem));
   }
 
   .quote-monument {
@@ -1019,5 +1045,20 @@ kbd {
     max-width: 580px;
     align-self: center;
     margin-top: auto;
+  }
+
+  .mode-duplicate .list .item {
+    height: auto;
+    min-height: 3.8rem;
+  }
+
+  .mode-duplicate .list .item--action .item-title {
+    white-space: normal;
+  }
+
+  .mode-duplicate .list .item--action .item-keys {
+    flex-basis: auto;
+    width: auto;
+    min-width: 2.1rem;
   }
 }

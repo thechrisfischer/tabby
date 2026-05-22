@@ -9,6 +9,8 @@ import {
   evaluateConsolidationPitch,
 } from "./cooldown.mjs";
 
+import { identityKey } from "./identity.mjs";
+
 const INTERSTITIAL_PAGE = "src/interstitial.html";
 const EXT_PREFIX = chrome.runtime.getURL("");
 
@@ -197,6 +199,27 @@ async function findSameHostTabs(navigatingTabId, hostname) {
     return a.index - b.index;
   });
   return out;
+}
+
+/**
+ * Find an existing tab whose URL has the same identity key as `key`,
+ * excluding the navigating tab. Returns the most-recently-accessed
+ * match, or null. Used by the strict-app layer in `maybeIntercept`
+ * to silently focus an existing app+account tab.
+ */
+async function findAccountMatch(key, excludeTabId) {
+  const tabs = await chrome.tabs.query({});
+  const candidates = [];
+  for (const t of tabs) {
+    if (t.id === excludeTabId) continue;
+    const u = tabUrlForPageMatch(t);
+    if (!u || !isHttpUrl(u) || isExtensionUrl(u)) continue;
+    if (identityKey(u) !== key) continue;
+    candidates.push(t);
+  }
+  if (candidates.length === 0) return null;
+  candidates.sort((a, b) => (b.lastAccessed ?? 0) - (a.lastAccessed ?? 0));
+  return candidates[0];
 }
 
 async function shouldOfferConsolidation(hostname, currentTabCount) {

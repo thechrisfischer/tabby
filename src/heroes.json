@@ -1,26 +1,77 @@
 {
-  "files": [
-    "bg-01.jpg",
-    "bg-02.jpg",
-    "bg-03.jpg",
-    "bg-04.jpg",
-    "bg-05.jpg",
-    "bg-06.jpg",
-    "bg-07.jpg",
-    "bg-08.jpg",
-    "bg-09.jpg",
-    "bg-10.jpg"
-  ],
-  "positions": [
-    "center 35%",
-    "center 28%",
-    "62% 38%",
-    "38% 48%",
-    "center 42%",
-    "72% 32%",
-    "28% 36%",
-    "center 22%",
-    "55% 40%",
-    "48% 55%"
-  ]
+  "personas": {
+    "landscape": {
+      "label": "Landscapes",
+      "files": [
+        "bg-01.jpg",
+        "bg-02.jpg",
+        "bg-03.jpg",
+        "bg-04.jpg",
+        "bg-05.jpg",
+        "bg-06.jpg",
+        "bg-07.jpg",
+        "bg-08.jpg",
+        "bg-09.jpg",
+        "bg-10.jpg"
+      ],
+      "positions": [
+        "center 35%",
+        "center 28%",
+        "62% 38%",
+        "38% 48%",
+        "center 42%",
+        "72% 32%",
+        "28% 36%",
+        "center 22%",
+        "55% 40%",
+        "48% 55%"
+      ]
+    },
+    "cats": {
+      "label": "Cats playing",
+      "files": [
+        "cats-01.jpg",
+        "cats-02.jpg",
+        "cats-03.jpg",
+        "cats-04.jpg",
+        "cats-05.jpg",
+        "cats-06.jpg",
+        "cats-07.jpg",
+        "cats-08.jpg"
+      ],
+      "positions": [
+        "center 45%",
+        "center 40%",
+        "center 55%",
+        "center 50%",
+        "center 35%",
+        "center 60%",
+        "center 50%",
+        "center 45%"
+      ]
+    },
+    "fractals": {
+      "label": "Fractals & digital art",
+      "files": [
+        "fractals-01.jpg",
+        "fractals-02.jpg",
+        "fractals-03.jpg",
+        "fractals-04.jpg",
+        "fractals-05.jpg",
+        "fractals-06.jpg",
+        "fractals-07.jpg",
+        "fractals-08.jpg"
+      ],
+      "positions": [
+        "center 50%",
+        "30% 40%",
+        "70% 35%",
+        "center 30%",
+        "center 60%",
+        "40% 50%",
+        "60% 45%",
+        "center 50%"
+      ]
+    }
+  }
 }

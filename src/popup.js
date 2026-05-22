@@ -2,11 +2,17 @@ const statusEl = document.getElementById("status");
 const btn = document.getElementById("consolidate");
 const undoBtn = document.getElementById("undo");
 const cooldownEl = document.getElementById("cooldown");
+const personaEl = document.getElementById("persona");
 
 const UNDO_WINDOW_MS = 10000;
 // SYNC with src/cooldown.mjs — popup.js runs as a classic script (no `type="module"`),
 // so it can't import from the .mjs module. Keep these two values identical.
 const DEFAULT_COOLDOWN_MS = 5 * 60 * 1000;
+
+// SYNC with src/interstitial-hero-boot.js and src/interstitial.js.
+const PERSONA_STORAGE_KEY = "tabby-hero-persona";
+const PERSONA_VALUES = new Set(["landscape", "cats", "fractals"]);
+const DEFAULT_PERSONA = "landscape";
 
 let undoState = null; // { sessionIds, expiresAt, intervalId, closedCount, hostCount }
 
@@ -168,9 +174,44 @@ async function saveCooldownSetting() {
   });
 }
 
+async function loadPersonaSetting() {
+  if (!personaEl) return;
+  try {
+    const data = await chrome.storage.sync.get(PERSONA_STORAGE_KEY);
+    const stored = data?.[PERSONA_STORAGE_KEY];
+    const value = PERSONA_VALUES.has(stored) ? stored : DEFAULT_PERSONA;
+    personaEl.value = value;
+    // Mirror canonical sync value into localStorage so the synchronous boot script picks it up.
+    try {
+      localStorage.setItem(PERSONA_STORAGE_KEY, value);
+    } catch {
+      /* ignore */
+    }
+  } catch {
+    personaEl.value = DEFAULT_PERSONA;
+  }
+}
+
+async function savePersonaSetting() {
+  if (!personaEl) return;
+  const value = PERSONA_VALUES.has(personaEl.value) ? personaEl.value : DEFAULT_PERSONA;
+  try {
+    await chrome.storage.sync.set({ [PERSONA_STORAGE_KEY]: value });
+  } catch {
+    /* fall through — localStorage mirror still helps for this device */
+  }
+  try {
+    localStorage.setItem(PERSONA_STORAGE_KEY, value);
+  } catch {
+    /* ignore */
+  }
+}
+
 btn?.addEventListener("click", () => void runConsolidate());
 undoBtn?.addEventListener("click", () => void runUndo());
 cooldownEl?.addEventListener("change", () => void saveCooldownSetting());
+personaEl?.addEventListener("change", () => void savePersonaSetting());
 window.addEventListener("beforeunload", clearUndo);
 void loadCooldownSetting();
+void loadPersonaSetting();
 void refreshPreview();

@@ -20,6 +20,17 @@ let lastTabDupRovingIndex = 0;
 /** Escape hides the duplicate choices card; Escape again restores it (hotkeys keep working). */
 let dupDialogCollapsed = false;
 
+/**
+ * Roving keyboard index for the consolidate panel.
+ * Layout (matches the visual order: tab list above buttons):
+ *   ix 0 .. nTabs-1 = host-tab rows
+ *   ix nTabs        = "Open in this tab"   (keepTabsAndGo)
+ *   ix nTabs+1      = "Tidy up & continue" (consolidateAndGo)
+ *   ix nTabs+2      = "Stay on this screen" (close interstitial tab)
+ * Initial value is set after conState is loaded so Enter immediately triggers the primary button.
+ */
+let conRovingIndex = 0;
+
 /** Invalidates in-flight tab preview fetches when hiding or switching hover target. */
 let tabThumbRequestSerial = 0;
 
@@ -63,32 +74,83 @@ function fnv1a32(str) {
 }
 
 /** Must match `src/interstitial-hero-boot.js` and `src/heroes.json` (single source of truth). */
-const HERO_EMBEDDED = {
-  files: [
-    "bg-01.jpg",
-    "bg-02.jpg",
-    "bg-03.jpg",
-    "bg-04.jpg",
-    "bg-05.jpg",
-    "bg-06.jpg",
-    "bg-07.jpg",
-    "bg-08.jpg",
-    "bg-09.jpg",
-    "bg-10.jpg",
-  ],
-  positions: [
-    "center 35%",
-    "center 28%",
-    "62% 38%",
-    "38% 48%",
-    "center 42%",
-    "72% 32%",
-    "28% 36%",
-    "center 22%",
-    "55% 40%",
-    "48% 55%",
-  ],
+const PERSONAS_EMBEDDED = {
+  landscape: {
+    label: "Landscapes",
+    files: [
+      "bg-01.jpg",
+      "bg-02.jpg",
+      "bg-03.jpg",
+      "bg-04.jpg",
+      "bg-05.jpg",
+      "bg-06.jpg",
+      "bg-07.jpg",
+      "bg-08.jpg",
+      "bg-09.jpg",
+      "bg-10.jpg",
+    ],
+    positions: [
+      "center 35%",
+      "center 28%",
+      "62% 38%",
+      "38% 48%",
+      "center 42%",
+      "72% 32%",
+      "28% 36%",
+      "center 22%",
+      "55% 40%",
+      "48% 55%",
+    ],
+  },
+  cats: {
+    label: "Cats playing",
+    files: [
+      "cats-01.jpg",
+      "cats-02.jpg",
+      "cats-03.jpg",
+      "cats-04.jpg",
+      "cats-05.jpg",
+      "cats-06.jpg",
+      "cats-07.jpg",
+      "cats-08.jpg",
+    ],
+    positions: [
+      "center 45%",
+      "center 40%",
+      "center 55%",
+      "center 50%",
+      "center 35%",
+      "center 60%",
+      "center 50%",
+      "center 45%",
+    ],
+  },
+  fractals: {
+    label: "Fractals & digital art",
+    files: [
+      "fractals-01.jpg",
+      "fractals-02.jpg",
+      "fractals-03.jpg",
+      "fractals-04.jpg",
+      "fractals-05.jpg",
+      "fractals-06.jpg",
+      "fractals-07.jpg",
+      "fractals-08.jpg",
+    ],
+    positions: [
+      "center 50%",
+      "30% 40%",
+      "70% 35%",
+      "center 30%",
+      "center 60%",
+      "40% 50%",
+      "60% 45%",
+      "center 50%",
+    ],
+  },
 };
+const DEFAULT_PERSONA = "landscape";
+const PERSONA_STORAGE_KEY = "tabby-hero-persona";
 
 const HERO_SEED_STORAGE_KEY = "tabby-hero-seed-fallback";
 
@@ -123,13 +185,46 @@ function randomSignalIndex(length) {
   return buf[0] % length;
 }
 
+function resolvePersona(name) {
+  return PERSONAS_EMBEDDED[name] ? name : DEFAULT_PERSONA;
+}
+
+function personaFromLocalStorage() {
+  try {
+    const stored = localStorage.getItem(PERSONA_STORAGE_KEY);
+    if (stored && PERSONAS_EMBEDDED[stored]) return stored;
+  } catch {
+    /* ignore */
+  }
+  return DEFAULT_PERSONA;
+}
+
+async function personaFromSyncOrLocal() {
+  try {
+    const data = await chrome.storage.sync.get(PERSONA_STORAGE_KEY);
+    const synced = data?.[PERSONA_STORAGE_KEY];
+    if (typeof synced === "string" && PERSONAS_EMBEDDED[synced]) {
+      try {
+        localStorage.setItem(PERSONA_STORAGE_KEY, synced);
+      } catch {
+        /* ignore */
+      }
+      return synced;
+    }
+  } catch {
+    /* ignore — chrome.storage may be unavailable in preview harness */
+  }
+  return personaFromLocalStorage();
+}
+
 /**
- * Hero art: bundled files under src/assets + crop positions from heroes.json.
+ * Hero art: bundled files under src/assets + crop positions from heroes.json (per persona).
  * `seed` comes from the interstitial session (stable across refresh for that URL).
  */
-function heroPick(config, seed) {
-  const files = config?.files?.length ? config.files : HERO_EMBEDDED.files;
-  const positions = config?.positions?.length ? config.positions : HERO_EMBEDDED.positions;
+function heroPick(conf, seed) {
+  const fallback = PERSONAS_EMBEDDED[DEFAULT_PERSONA];
+  const files = conf?.files?.length ? conf.files : fallback.files;
+  const positions = conf?.positions?.length ? conf.positions : fallback.positions;
   const s = (seed >>> 0) || 0;
   const fileIx = s % files.length;
   const posIx = ((s * 5011 + 17) >>> 0) % positions.length;
@@ -162,19 +257,29 @@ async function loadHeroConfig() {
 /**
  * Ignore corrupt/truncated JSON (e.g. bad cache) so we never shrink the file list vs boot.
  * Boot uses the embedded lists; modulo must stay consistent or the hero swaps on refresh.
+ * Returns a map keyed by persona; null if JSON is malformed.
  */
 function normalizeHeroConfig(raw) {
   if (!raw || typeof raw !== "object") return null;
-  const files = /** @type {{ files?: unknown; positions?: unknown }} */ (raw).files;
-  const positions = /** @type {{ files?: unknown; positions?: unknown }} */ (raw).positions;
-  if (!Array.isArray(files) || !Array.isArray(positions)) return null;
-  if (
-    files.length < HERO_EMBEDDED.files.length ||
-    positions.length < HERO_EMBEDDED.positions.length
-  ) {
-    return null;
+  const personas = /** @type {{ personas?: unknown }} */ (raw).personas;
+  if (!personas || typeof personas !== "object") return null;
+  const out = /** @type {Record<string, { files: string[]; positions: string[] }>} */ ({});
+  for (const key of Object.keys(PERSONAS_EMBEDDED)) {
+    const entry = /** @type {Record<string, unknown>} */ (personas)[key];
+    if (!entry || typeof entry !== "object") continue;
+    const files = /** @type {{ files?: unknown }} */ (entry).files;
+    const positions = /** @type {{ positions?: unknown }} */ (entry).positions;
+    if (!Array.isArray(files) || !Array.isArray(positions)) continue;
+    const embedded = PERSONAS_EMBEDDED[key];
+    if (files.length < embedded.files.length || positions.length < embedded.positions.length) {
+      continue;
+    }
+    out[key] = {
+      files: /** @type {string[]} */ (files),
+      positions: /** @type {string[]} */ (positions),
+    };
   }
-  return { files: /** @type {string[]} */ (files), positions: /** @type {string[]} */ (positions) };
+  return Object.keys(out).length ? out : null;
 }
 
 function heroListsEqual(a, b) {
@@ -184,34 +289,43 @@ function heroListsEqual(a, b) {
   return a.files.every((f, i) => f === b.files[i]) && a.positions.every((p, i) => p === b.positions[i]);
 }
 
-function applyHeroBackdrop(config, seed) {
+function applyHeroBackdrop(personasConfig, persona, seed) {
   const img = document.getElementById("backdrop-img");
   if (!img) return;
 
-  const fetched = config?.files?.length ? config : null;
+  const active = resolvePersona(persona);
+  const embedded = PERSONAS_EMBEDDED[active];
+  const fetched = personasConfig?.[active] ?? null;
   const booted = Boolean(img.dataset.tabbyHeroFile);
+  const bootPersona = img.dataset.tabbyHeroPersona || DEFAULT_PERSONA;
 
-  // Boot already ran; fetched JSON matches bundled defaults — never touch the image again.
-  // Re-assigning src / styles here can re-decode and flash on later reloads (cache timing).
-  if (booted && (!fetched || heroListsEqual(fetched, HERO_EMBEDDED))) {
+  // Boot already ran with the correct persona; fetched JSON matches embedded — never touch
+  // the image again. Re-assigning src / styles here can re-decode and flash on later reloads.
+  if (booted && bootPersona === active && (!fetched || heroListsEqual(fetched, embedded))) {
     return;
   }
 
-  // Boot ran with embedded lists, but heroes.json is a strict superset — re-pick once.
-  const merged = fetched ?? HERO_EMBEDDED;
+  const merged = fetched ?? embedded;
   const { file, position } = heroPick(merged, seed);
   const url = chrome.runtime.getURL(`src/assets/${file}`);
-  if (img.dataset.tabbyHeroFile === file && img.dataset.tabbyHeroPos === position) return;
+  if (
+    img.dataset.tabbyHeroFile === file &&
+    img.dataset.tabbyHeroPos === position &&
+    img.dataset.tabbyHeroPersona === active
+  )
+    return;
   if (img.src === url) {
     img.style.objectPosition = position;
     img.dataset.tabbyHeroFile = file;
     img.dataset.tabbyHeroPos = position;
+    img.dataset.tabbyHeroPersona = active;
     return;
   }
   img.src = url;
   img.style.objectPosition = position;
   img.dataset.tabbyHeroFile = file;
   img.dataset.tabbyHeroPos = position;
+  img.dataset.tabbyHeroPersona = active;
 }
 
 function renderQuote(entry) {
@@ -604,6 +718,7 @@ function renderDuplicateOptions() {
   stayLi.addEventListener("click", () => {
     dupRovingIndex = stayIx;
     renderDuplicateOptions();
+    setDupDialogCollapsed(true);
   });
   listEl.appendChild(stayLi);
 
@@ -754,6 +869,7 @@ function onKeydownDuplicate(e) {
       void focusChosenAt(dupRovingIndex - 2);
     } else {
       e.preventDefault();
+      setDupDialogCollapsed(true);
     }
     return;
   }
@@ -781,6 +897,8 @@ function setConChromeVisible(visible) {
 
 function onKeydownConsolidate(e) {
   if (!conState) return;
+  const { total } = conOptionLayout();
+  if (total <= 0) return;
 
   if (e.key === "Escape") {
     e.preventDefault();
@@ -790,9 +908,25 @@ function onKeydownConsolidate(e) {
     return;
   }
 
+  if (e.key === "ArrowDown") {
+    e.preventDefault();
+    conRovingIndex = Math.min(conRovingIndex + 1, total - 1);
+    renderConsolidateOptions();
+    scrollConRovingIntoView();
+    return;
+  }
+
+  if (e.key === "ArrowUp") {
+    e.preventDefault();
+    conRovingIndex = Math.max(conRovingIndex - 1, 0);
+    renderConsolidateOptions();
+    scrollConRovingIntoView();
+    return;
+  }
+
   if (e.key === "Enter") {
     e.preventDefault();
-    void keepTabsAndGo();
+    activateConOption();
     return;
   }
 
@@ -803,35 +937,94 @@ function onKeydownConsolidate(e) {
   }
 }
 
-function renderHostTabs() {
+function conOptionLayout() {
+  const nTabs = conState?.hostTabs?.length ?? 0;
+  return {
+    nTabs,
+    keepIx: nTabs,
+    mergeIx: nTabs + 1,
+    stayIx: nTabs + 2,
+    total: nTabs + 3,
+  };
+}
+
+function renderConsolidateOptions() {
+  if (!conState) return;
+  const { nTabs, keepIx, mergeIx, stayIx, total } = conOptionLayout();
+  if (conRovingIndex >= total) conRovingIndex = Math.max(0, total - 1);
+
   const listEl = document.getElementById("con-list");
-  if (!listEl) return;
-  const tabs = conState?.hostTabs ?? [];
-  listEl.replaceChildren();
-  if (tabs.length === 0) {
-    listEl.hidden = true;
-    return;
+  if (listEl) {
+    const tabs = conState.hostTabs ?? [];
+    listEl.replaceChildren();
+    if (tabs.length === 0) {
+      listEl.hidden = true;
+    } else {
+      listEl.hidden = false;
+      tabs.forEach((d, i) => {
+        const li = document.createElement("li");
+        li.className =
+          "item item--tab" +
+          (i === 0 ? " item--tab-first" : "") +
+          (conRovingIndex === i ? " selected" : "");
+        li.id = `con-opt-${i}`;
+        li.setAttribute("role", "option");
+        li.setAttribute("aria-selected", conRovingIndex === i ? "true" : "false");
+        li.dataset.kind = "host-tab";
+        li.dataset.index = String(i);
+        li.innerHTML = `
+          <span class="item-index" aria-hidden="true">·</span>
+          <div class="item-body">
+            <div class="item-title"></div>
+            <div class="item-url"></div>
+          </div>
+        `;
+        li.querySelector(".item-title").textContent = d.title || d.url;
+        li.querySelector(".item-url").textContent = d.url;
+        li.addEventListener("click", () => {
+          conRovingIndex = i;
+          renderConsolidateOptions();
+          void focusHostTabAt(i);
+        });
+        listEl.appendChild(li);
+      });
+    }
   }
-  listEl.hidden = false;
-  tabs.forEach((d, i) => {
-    const li = document.createElement("li");
-    li.className = "item item--tab" + (i === 0 ? " item--tab-first" : "");
-    li.id = `con-opt-${i}`;
-    li.setAttribute("role", "option");
-    li.dataset.kind = "host-tab";
-    li.dataset.index = String(i);
-    li.innerHTML = `
-      <span class="item-index" aria-hidden="true">·</span>
-      <div class="item-body">
-        <div class="item-title"></div>
-        <div class="item-url"></div>
-      </div>
-    `;
-    li.querySelector(".item-title").textContent = d.title || d.url;
-    li.querySelector(".item-url").textContent = d.url;
-    li.addEventListener("click", () => void focusHostTabAt(i));
-    listEl.appendChild(li);
-  });
+
+  const btnKeep = document.getElementById("btn-keep");
+  const btnMerge = document.getElementById("btn-merge");
+  const btnStay = document.getElementById("btn-con-stay");
+  if (btnKeep) btnKeep.classList.toggle("btn--selected", conRovingIndex === keepIx);
+  if (btnMerge) btnMerge.classList.toggle("btn--selected", conRovingIndex === mergeIx);
+  if (btnStay) btnStay.classList.toggle("btn--selected", conRovingIndex === stayIx);
+}
+
+function scrollConRovingIntoView() {
+  const { nTabs, keepIx, mergeIx, stayIx } = conOptionLayout();
+  let el = null;
+  if (conRovingIndex < nTabs) el = document.getElementById(`con-opt-${conRovingIndex}`);
+  else if (conRovingIndex === keepIx) el = document.getElementById("btn-keep");
+  else if (conRovingIndex === mergeIx) el = document.getElementById("btn-merge");
+  else if (conRovingIndex === stayIx) el = document.getElementById("btn-con-stay");
+  if (el && typeof el.scrollIntoView === "function") {
+    el.scrollIntoView({ block: "nearest", inline: "nearest" });
+  }
+}
+
+function activateConOption() {
+  if (!conState) return;
+  const { nTabs, keepIx, mergeIx, stayIx } = conOptionLayout();
+  if (conRovingIndex < nTabs) {
+    void focusHostTabAt(conRovingIndex);
+  } else if (conRovingIndex === keepIx) {
+    void keepTabsAndGo();
+  } else if (conRovingIndex === mergeIx) {
+    void consolidateAndGo();
+  } else if (conRovingIndex === stayIx) {
+    if (typeof conState.tabId === "number") {
+      void chrome.runtime.sendMessage({ type: "tabby-close-tab", tabId: conState.tabId });
+    }
+  }
 }
 
 async function focusHostTabAt(tabIndex) {
@@ -853,9 +1046,13 @@ async function focusHostTabAt(tabIndex) {
 async function main() {
   const { k, c } = parseParams();
   const heroSeed = heroSeedFromInvocation(k, c);
-  // One round-trip: quotes + hero config are tiny bundled JSON; parallel keeps first paint snappy.
-  const [signals, heroConfig] = await Promise.all([loadSignals(), loadHeroConfig()]);
-  applyHeroBackdrop(heroConfig, heroSeed);
+  // One round-trip: quotes + hero config + persona; tiny bundled JSON / storage in parallel.
+  const [signals, heroConfig, persona] = await Promise.all([
+    loadSignals(),
+    loadHeroConfig(),
+    personaFromSyncOrLocal(),
+  ]);
+  applyHeroBackdrop(heroConfig, persona, heroSeed);
   if (signals?.length) {
     renderQuote(signals[randomSignalIndex(signals.length)]);
   }
@@ -902,13 +1099,25 @@ async function main() {
     setConChromeVisible(true);
     const body = qs("con-body");
     body.textContent = `You have ${conState.tabCount} tabs open to ${conState.hostname}. Want to close the extras and land here? Or keep everything as-is? We only ask once in a while so it stays helpful, not noisy.`;
-    renderHostTabs();
+    // Default focus on the primary action (Enter still triggers "Open in this tab" without arrow nav).
+    conRovingIndex = conOptionLayout().keepIx;
+    renderConsolidateOptions();
     setFootnote(
       "If you tidy up, we’ll close the normal website tabs for this address (not other extensions or browser pages), then open your link in this tab.",
     );
-    qs("btn-merge").addEventListener("click", () => void consolidateAndGo());
-    qs("btn-keep").addEventListener("click", () => void keepTabsAndGo());
+    qs("btn-merge").addEventListener("click", () => {
+      conRovingIndex = conOptionLayout().mergeIx;
+      renderConsolidateOptions();
+      void consolidateAndGo();
+    });
+    qs("btn-keep").addEventListener("click", () => {
+      conRovingIndex = conOptionLayout().keepIx;
+      renderConsolidateOptions();
+      void keepTabsAndGo();
+    });
     qs("btn-con-stay").addEventListener("click", () => {
+      conRovingIndex = conOptionLayout().stayIx;
+      renderConsolidateOptions();
       if (typeof conState?.tabId === "number") {
         void chrome.runtime.sendMessage({ type: "tabby-close-tab", tabId: conState.tabId });
       }

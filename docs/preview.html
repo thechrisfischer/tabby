@@ -1,0 +1,272 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Tabby — interstitial preview</title>
+    <link rel="stylesheet" href="../src/interstitial.css" />
+    <style>
+      .preview-controls {
+        position: fixed;
+        bottom: 12px;
+        left: 12px;
+        z-index: 9999;
+        background: rgba(20, 20, 24, 0.78);
+        backdrop-filter: blur(12px);
+        color: #fff;
+        font: 12px/1.4 system-ui, sans-serif;
+        padding: 10px 12px;
+        border-radius: 10px;
+        border: 1px solid rgba(255, 255, 255, 0.16);
+        display: grid;
+        gap: 6px;
+        min-width: 180px;
+      }
+      .preview-controls h2 {
+        margin: 0 0 4px;
+        font-size: 11px;
+        text-transform: uppercase;
+        letter-spacing: 0.08em;
+        opacity: 0.7;
+      }
+      .preview-controls button {
+        text-align: left;
+        font: inherit;
+        background: rgba(255, 255, 255, 0.08);
+        color: inherit;
+        border: 1px solid rgba(255, 255, 255, 0.14);
+        border-radius: 6px;
+        padding: 6px 8px;
+        cursor: pointer;
+      }
+      .preview-controls button:hover {
+        background: rgba(255, 255, 255, 0.14);
+      }
+      .preview-controls button.active {
+        background: rgba(255, 255, 255, 0.22);
+        border-color: rgba(255, 255, 255, 0.4);
+      }
+    </style>
+
+    <script>
+      // ---- chrome.* stub for standalone preview ---------------------------
+      const PREVIEW = (() => {
+        const params = new URL(location.href).searchParams;
+        const mode = params.get("mode") || "duplicate"; // duplicate | dup-expired | consolidate | con-expired | con-few | empty
+        const persona = params.get("persona") || "landscape";
+        return { mode, persona };
+      })();
+
+      const DUP_STATE = {
+        kind: "duplicate",
+        targetUrl: "https://news.ycombinator.com/item?id=12345678",
+        tabId: 999,
+        duplicates: [
+          {
+            id: 11,
+            windowId: 1,
+            title: "Show HN: Tabby — a focus guard for tab hoarders",
+            url: "https://news.ycombinator.com/item?id=12345678",
+            favIconUrl: "https://news.ycombinator.com/favicon.ico",
+            lastAccessed: Date.now() - 1000 * 60 * 7,
+            pinned: false,
+          },
+          {
+            id: 12,
+            windowId: 1,
+            title: "Show HN: Tabby — a focus guard for tab hoarders | Hacker News",
+            url: "https://news.ycombinator.com/item?id=12345678",
+            favIconUrl: "https://news.ycombinator.com/favicon.ico",
+            lastAccessed: Date.now() - 1000 * 60 * 60 * 3,
+            pinned: true,
+          },
+        ],
+      };
+
+      const CON_STATE = {
+        kind: "consolidate",
+        pendingUrl: "https://github.com/anthropics/claude-code/pulls",
+        hostname: "github.com",
+        tabCount: 8,
+        tabId: 999,
+        hostTabs: [
+          { id: 21, windowId: 1, index: 1, title: "anthropics/claude-code: build with Claude — pulls", url: "https://github.com/anthropics/claude-code/pulls", favIconUrl: "https://github.githubassets.com/favicons/favicon.svg", lastAccessed: Date.now() - 1000 * 60 * 12, pinned: false },
+          { id: 22, windowId: 1, index: 2, title: "Issues · anthropics/claude-code", url: "https://github.com/anthropics/claude-code/issues?q=is%3Aopen+is%3Aissue+label%3Abug", favIconUrl: "https://github.githubassets.com/favicons/favicon.svg", lastAccessed: Date.now() - 1000 * 60 * 60, pinned: false },
+          { id: 23, windowId: 1, index: 3, title: "anthropics/claude-code · Discussions", url: "https://github.com/anthropics/claude-code/discussions", favIconUrl: "https://github.githubassets.com/favicons/favicon.svg", lastAccessed: Date.now() - 1000 * 60 * 60 * 8, pinned: false },
+          { id: 24, windowId: 1, index: 4, title: "Pricing · GitHub", url: "https://github.com/pricing", favIconUrl: "https://github.githubassets.com/favicons/favicon.svg", lastAccessed: Date.now() - 1000 * 60 * 60 * 24, pinned: true },
+          { id: 25, windowId: 1, index: 5, title: "Your repositories · GitHub", url: "https://github.com/cfischer?tab=repositories", favIconUrl: "https://github.githubassets.com/favicons/favicon.svg", lastAccessed: Date.now() - 1000 * 60 * 60 * 24 * 4, pinned: false },
+          { id: 26, windowId: 1, index: 6, title: "GitHub Marketplace · Apps for developers", url: "https://github.com/marketplace?type=apps&category=ci", favIconUrl: "https://github.githubassets.com/favicons/favicon.svg", lastAccessed: Date.now() - 1000 * 60 * 60 * 24 * 12, pinned: false },
+        ],
+      };
+
+      const CON_STATE_FEW = {
+        ...CON_STATE,
+        tabCount: 3,
+        hostTabs: CON_STATE.hostTabs.slice(0, 3),
+      };
+
+      const sessionStore = {};
+      if (PREVIEW.mode === "duplicate") sessionStore["dup_PREVIEW"] = DUP_STATE;
+      if (PREVIEW.mode === "consolidate") sessionStore["consolidate_PREVIEW"] = CON_STATE;
+      if (PREVIEW.mode === "con-few") sessionStore["consolidate_PREVIEW"] = CON_STATE_FEW;
+
+      const syncStore = { "tabby-hero-persona": PREVIEW.persona };
+      // Mirror to localStorage so the synchronous boot script honors the persona too.
+      try {
+        localStorage.setItem("tabby-hero-persona", PREVIEW.persona);
+      } catch {}
+
+      window.chrome = {
+        runtime: {
+          getURL(path) {
+            return new URL("../" + path, location.href).toString();
+          },
+          sendMessage(msg) {
+            console.log("[preview] sendMessage", msg);
+            return Promise.resolve({ ok: true });
+          },
+        },
+        storage: {
+          session: {
+            async get(key) {
+              if (typeof key === "string") {
+                return key in sessionStore ? { [key]: sessionStore[key] } : {};
+              }
+              return {};
+            },
+          },
+          sync: {
+            async get(key) {
+              if (typeof key === "string") {
+                return key in syncStore ? { [key]: syncStore[key] } : {};
+              }
+              return {};
+            },
+            async set(obj) {
+              Object.assign(syncStore, obj);
+              return undefined;
+            },
+          },
+        },
+      };
+
+      // Inject ?k / ?c so interstitial.js picks the matching mode.
+      (() => {
+        const u = new URL(location.href);
+        if (PREVIEW.mode === "duplicate") u.searchParams.set("k", "PREVIEW");
+        else if (PREVIEW.mode === "dup-expired") u.searchParams.set("k", "MISSING");
+        else if (PREVIEW.mode === "consolidate" || PREVIEW.mode === "con-few") u.searchParams.set("c", "PREVIEW");
+        else if (PREVIEW.mode === "con-expired") u.searchParams.set("c", "MISSING");
+        history.replaceState(null, "", u.toString());
+      })();
+    </script>
+  </head>
+  <body>
+    <nav class="preview-controls" aria-label="Preview controls">
+      <h2>Tabby — preview</h2>
+      <button data-mode="duplicate">Duplicate — choose</button>
+      <button data-mode="dup-expired">Duplicate — expired</button>
+      <button data-mode="consolidate">Consolidate — many</button>
+      <button data-mode="con-few">Consolidate — few</button>
+      <button data-mode="con-expired">Consolidate — expired</button>
+      <button data-mode="empty">No params</button>
+      <h2 style="margin-top:8px">Persona</h2>
+      <button data-persona="landscape">Landscapes</button>
+      <button data-persona="cats">Cats playing</button>
+      <button data-persona="fractals">Fractals &amp; digital art</button>
+      <script>
+        document.querySelectorAll(".preview-controls button[data-mode]").forEach((b) => {
+          if (b.dataset.mode === PREVIEW.mode) b.classList.add("active");
+          b.addEventListener("click", () => {
+            const u = new URL(location.href);
+            u.searchParams.set("mode", b.dataset.mode);
+            u.searchParams.delete("k");
+            u.searchParams.delete("c");
+            location.href = u.toString();
+          });
+        });
+        document.querySelectorAll(".preview-controls button[data-persona]").forEach((b) => {
+          if (b.dataset.persona === PREVIEW.persona) b.classList.add("active");
+          b.addEventListener("click", () => {
+            const u = new URL(location.href);
+            u.searchParams.set("persona", b.dataset.persona);
+            location.href = u.toString();
+          });
+        });
+      </script>
+    </nav>
+
+    <div class="backdrop" aria-hidden="true">
+      <img id="backdrop-img" class="backdrop-img" alt="" width="1920" height="1080" decoding="sync" fetchpriority="high" />
+      <script src="../src/interstitial-hero-boot.js"></script>
+      <div class="backdrop-scrim"></div>
+    </div>
+
+    <div class="page">
+      <header class="brand" aria-label="Tabby">
+        <span class="brand-lockup">
+          <img class="brand-lockup-img" src="../src/assets/tabby-brand-lockup.png" width="1536" height="1024" alt="Tabby" decoding="async" />
+        </span>
+      </header>
+
+      <aside class="quote-monument" aria-label="Daily quote">
+        <blockquote class="quote monument-pullquote" id="quote-block" cite="signals">
+          <p class="monument-line" id="quote-l1"></p>
+          <p class="monument-line monument-line--secondary" id="quote-l2"></p>
+          <footer class="monument-by" id="quote-by"></footer>
+        </blockquote>
+      </aside>
+
+      <aside class="tab-thumb" id="tab-thumb" hidden aria-hidden="true">
+        <div class="tab-thumb-inner">
+          <div class="tab-thumb-frame">
+            <img id="tab-thumb-img" class="tab-thumb-img" alt="" width="72" height="72" decoding="async" hidden />
+            <span class="tab-thumb-initial" id="tab-thumb-initial" hidden aria-hidden="true"></span>
+          </div>
+          <div class="tab-thumb-copy">
+            <p class="tab-thumb-title" id="tab-thumb-title"></p>
+            <p class="tab-thumb-recency" id="tab-thumb-recency" hidden></p>
+            <p class="tab-thumb-live-title" id="tab-thumb-live-title" hidden></p>
+            <p class="tab-thumb-canonical" id="tab-thumb-canonical" hidden></p>
+            <p class="tab-thumb-desc" id="tab-thumb-desc" hidden></p>
+          </div>
+        </div>
+      </aside>
+
+      <p class="dup-restore-hint" id="dup-restore-hint" hidden aria-live="polite">Esc — show choices</p>
+
+      <main class="dialog-card" id="dialog-card">
+        <section class="mode mode-duplicate" id="panel-dup" hidden>
+          <h1 class="title">You already have this page open</h1>
+          <p class="sub sub--dup-host"><span class="host" id="host"></span></p>
+          <p class="keys err-msg" id="hint-dup" hidden role="alert"></p>
+          <ul class="list" id="list" role="listbox" aria-label="Tabs and actions for this duplicate page"></ul>
+        </section>
+
+        <section class="mode mode-consolidate" id="panel-con" hidden>
+          <h1 class="title" id="con-title">Quite a few tabs for this site</h1>
+          <p class="sub" id="con-body"></p>
+          <p class="keys err-msg" id="hint-con-err" hidden role="alert"></p>
+          <ul class="list con-list" id="con-list" role="listbox" aria-label="Existing tabs on this site" hidden></ul>
+          <div class="actions">
+            <button type="button" class="btn primary" id="btn-keep">
+              <span class="btn-text">Open in this tab</span>
+              <kbd class="btn-kbd" aria-hidden="true">Enter</kbd>
+            </button>
+            <button type="button" class="btn" id="btn-merge">
+              <span class="btn-text">Tidy up &amp; continue</span>
+              <kbd class="btn-kbd" aria-hidden="true">C</kbd>
+            </button>
+            <button type="button" class="btn btn-ghost" id="btn-con-stay">
+              <span class="btn-text">Stay on this screen</span>
+              <kbd class="btn-kbd" aria-hidden="true">Esc</kbd>
+            </button>
+          </div>
+        </section>
+
+        <p class="footnote" id="footnote"></p>
+      </main>
+    </div>
+    <script type="module" src="../src/interstitial.js"></script>
+  </body>
+</html>

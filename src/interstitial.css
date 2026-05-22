@@ -578,6 +578,10 @@ kbd {
   gap: 0.55rem;
 }
 
+.actions[hidden] {
+  display: none;
+}
+
 .btn {
   appearance: none;
   width: 100%;
@@ -660,6 +664,20 @@ kbd {
 
 .btn:active {
   transform: scale(0.99);
+}
+
+.btn.btn--selected {
+  box-shadow:
+    0 0 0 2px var(--accent) inset,
+    0 1px 0 rgba(255, 255, 255, 0.35) inset,
+    0 10px 28px rgba(40, 90, 200, 0.18);
+}
+
+.btn.primary.btn--selected {
+  box-shadow:
+    0 0 0 2px rgba(255, 255, 255, 0.85) inset,
+    0 1px 0 rgba(255, 255, 255, 0.35) inset,
+    0 10px 28px rgba(40, 90, 200, 0.38);
 }
 
 .btn.primary {

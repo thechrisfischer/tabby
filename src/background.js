@@ -402,6 +402,33 @@ async function maybeIntercept(tabId, url, _source) {
     if (t.pendingUrl && isExtensionUrl(t.pendingUrl)) return;
     if (t.url && isExtensionUrl(t.url)) return;
 
+    // Strict-app layer: for known multi-account apps (Google /u/N/),
+    // silently focus an existing tab with the same host+account and
+    // close the navigator. Runs before duplicate/consolidate layers.
+    const key = identityKey(url);
+    if (key) {
+      const match = await findAccountMatch(key, tabId);
+      if (match) {
+        let focused = false;
+        try {
+          await chrome.windows.update(match.windowId, { focused: true });
+          await chrome.tabs.update(match.id, { active: true });
+          focused = true;
+        } catch (e) {
+          console.warn("Tabby strict-redirect: focus failed, falling through:", e);
+        }
+        if (focused) {
+          try {
+            await chrome.tabs.remove(tabId);
+          } catch (e) {
+            console.warn("Tabby strict-redirect: navigator close failed:", e);
+          }
+          return;
+        }
+        // focus failed → fall through to existing duplicate/consolidate layers
+      }
+    }
+
     const dupes = await findSamePageDuplicates(tabId, url);
     if (dupes.length > 0) {
       if (shouldSkipDuplicateInterstitialForSameSiteNavigation(tabId, url)) {

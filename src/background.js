@@ -405,8 +405,13 @@ async function maybeIntercept(tabId, url, _source) {
     // Strict-app layer: for known multi-account apps (Google /u/N/),
     // silently focus an existing tab with the same host+account and
     // close the navigator. Runs before duplicate/consolidate layers.
+    // The prior-URL guard prevents in-place navigation within an
+    // already-strict-app tab from being intercepted when another
+    // sibling tab elsewhere shares the same key.
     const key = identityKey(url);
-    if (key) {
+    const priorUrl = lastCommittedHttpUrlByTab.get(tabId);
+    const sameContextNavigation = !!priorUrl && identityKey(priorUrl) === key;
+    if (key && !sameContextNavigation) {
       const match = await findAccountMatch(key, tabId);
       if (match) {
         let focused = false;
